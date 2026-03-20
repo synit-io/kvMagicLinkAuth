@@ -16,6 +16,7 @@ Maintained by [synit.io](https://www.synit.io).
 ## Install
 
 ### Deno
+
 ```sh
 deno add jsr:@synitio/kv-magic-link-auth
 ```

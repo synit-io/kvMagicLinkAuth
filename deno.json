@@ -1,6 +1,6 @@
 {
   "name": "@synitio/kv-magic-link-auth",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Deno KV backed magic-link authentication for server-side Deno apps.",
   "license": "MIT",
   "exports": {

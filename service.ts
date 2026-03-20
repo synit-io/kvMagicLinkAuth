@@ -75,12 +75,14 @@ function sanitizeRedirectTo(
   }
 }
 
+/** Deno KV backed magic-link authentication service for server-side Deno applications. */
 export class DenoKvMagicLinkAuth {
   private config: Required<Omit<DenoKvMagicLinkAuthConfig, "appBaseUrl">> & {
     appBaseUrl: string;
   };
   private deps: DenoKvMagicLinkAuthDeps;
 
+  /** Creates a new auth service with package configuration and injected application dependencies. */
   constructor(
     config: DenoKvMagicLinkAuthConfig,
     deps: DenoKvMagicLinkAuthDeps,
@@ -115,6 +117,7 @@ export class DenoKvMagicLinkAuth {
     return [this.config.keyPrefix, scope, id];
   }
 
+  /** Issues a one-time magic link for an active user and stores its verification record in Deno KV. */
   async issueMagicLink(
     input: MagicLinkIssueInput,
   ): Promise<MagicLinkIssueResult> {
@@ -199,6 +202,7 @@ export class DenoKvMagicLinkAuth {
     };
   }
 
+  /** Verifies and consumes a magic link, then creates a session when the verification context matches. */
   async verifyMagicLink(
     input: MagicLinkVerifyInput,
   ): Promise<MagicLinkVerifyResult | null> {
@@ -290,6 +294,7 @@ export class DenoKvMagicLinkAuth {
     };
   }
 
+  /** Returns the current session record if it exists and has not expired or been revoked. */
   async getSession(sessionId: string): Promise<SessionRecord | null> {
     const entry = await this.deps.kv.get<SessionRecord>(
       this.key("sessions", sessionId),
@@ -304,6 +309,7 @@ export class DenoKvMagicLinkAuth {
     return entry.value;
   }
 
+  /** Revokes a session by deleting it from Deno KV. */
   async revokeSession(sessionId: string): Promise<void> {
     await this.deps.kv.delete(this.key("sessions", sessionId));
   }

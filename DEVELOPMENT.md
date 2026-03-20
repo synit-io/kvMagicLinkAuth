@@ -1,7 +1,7 @@
 # Development
 
-This package is maintained by [synit.io](https://www.synit.io) and is intended to
-stay fully compatible with modern Deno and JSR publishing requirements.
+This package is maintained by [synit.io](https://www.synit.io) and is intended
+to stay fully compatible with modern Deno and JSR publishing requirements.
 
 ## Local workflow
 

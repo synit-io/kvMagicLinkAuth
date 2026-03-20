@@ -1,7 +1,12 @@
+/** Configuration for session and magic-link binding cookies. */
 export interface MagicLinkCookieConfig {
+  /** Cookie name used for persisted login sessions. Defaults to `"session"`. */
   sessionCookieName?: string;
+  /** Cookie name used to bind the verification request to the issuing browser. Defaults to `"ml_bind"`. */
   bindingCookieName?: string;
+  /** Adds the `Secure` attribute when set to `true`. */
   secure?: boolean;
+  /** Session cookie lifetime in days. Defaults to `30`. */
   sessionAbsoluteTtlDays?: number;
 }
 
@@ -36,6 +41,7 @@ function bindingCookieBase(maxAgeSeconds: number, secure: boolean): string {
   return parts.join("; ");
 }
 
+/** Reads a cookie value from the request headers. Returns `null` if the cookie is missing or malformed. */
 export function getCookie(headers: Headers, name: string): string | null {
   const raw = headers.get("cookie");
   if (!raw) return null;
@@ -52,6 +58,7 @@ export function getCookie(headers: Headers, name: string): string | null {
   return null;
 }
 
+/** Builds a `Set-Cookie` header value for the authenticated session cookie. */
 export function buildSessionSetCookie(
   sessionId: string,
   config: MagicLinkCookieConfig = {},
@@ -66,6 +73,7 @@ export function buildSessionSetCookie(
   }`;
 }
 
+/** Builds a `Set-Cookie` header value that clears the authenticated session cookie. */
 export function buildSessionClearCookie(
   config: MagicLinkCookieConfig = {},
 ): string {
@@ -78,6 +86,7 @@ export function buildSessionClearCookie(
   }; Expires=Thu, 01 Jan 1970 00:00:00 GMT`;
 }
 
+/** Builds a `Set-Cookie` header value for the short-lived magic-link binding cookie. */
 export function buildBindingSetCookie(
   value: string,
   maxAgeSeconds: number,
@@ -92,6 +101,7 @@ export function buildBindingSetCookie(
   }`;
 }
 
+/** Builds a `Set-Cookie` header value that clears the magic-link binding cookie. */
 export function buildBindingClearCookie(
   config: MagicLinkCookieConfig = {},
 ): string {
