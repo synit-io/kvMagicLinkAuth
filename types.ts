@@ -10,6 +10,8 @@ export interface MagicLinkAuthUser {
   active: boolean;
   /** Optional application role copied into the session record. */
   role?: string;
+  /** Whether the authenticated user should be treated as a super administrator. */
+  isSuperAdmin?: boolean;
 }
 
 /** Stored Deno KV record for an issued magic link. */
@@ -30,12 +32,20 @@ export interface SessionRecord {
   userId: string;
   userEmail: string;
   role: string;
+  isSuperAdmin: boolean;
   authVersion: number;
   createdAt: string;
   lastSeenAt: string;
   idleExpiresAt: string;
   absoluteExpiresAt: string;
   revokedAt: string | null;
+}
+
+/** Stored failed-auth state for one originating IP address. */
+export interface FailedAuthAttemptRecord {
+  count: number;
+  lastAttemptAt: string;
+  blockedUntil: string | null;
 }
 
 /** Input payload for issuing a magic link. */
@@ -94,6 +104,11 @@ export interface DenoKvMagicLinkAuthConfig {
   sessionAbsoluteTtlDays?: number;
   authDevExposeMagicLink?: boolean;
   sendEmailInDebugMode?: boolean;
+  allowedEmailPatterns?: string[];
+  initialSuperAdminEmail?: string;
+  failedAuthRateLimitMaxAttempts?: number;
+  failedAuthRateLimitWindowMinutes?: number;
+  failedAuthRateLimitBlockMinutes?: number;
   keyPrefix?: string;
 }
 

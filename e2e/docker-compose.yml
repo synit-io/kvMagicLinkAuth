@@ -1,0 +1,21 @@
+services:
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  auth-app:
+    build:
+      context: ..
+      dockerfile: e2e/Dockerfile
+    depends_on:
+      - mailpit
+    environment:
+      PORT: "8080"
+      APP_BASE_URL: "http://127.0.0.1:8080"
+      SMTP_HOST: "mailpit"
+      SMTP_PORT: "1025"
+      KV_PATH: "/tmp/kv-magic-link-e2e.sqlite3"
+    ports:
+      - "8080:8080"

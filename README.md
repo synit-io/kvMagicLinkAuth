@@ -9,8 +9,12 @@ Maintained by [synit.io](https://www.synit.io).
 - One-time magic-link issuance backed by Deno KV.
 - Atomic link consumption to prevent replay races.
 - Session persistence in Deno KV.
+- Optional email-address and domain allowlist support.
+- Failed-login rate limiting per originating IP address.
+- Initial super-admin propagation into verified users and stored sessions.
 - Optional binding checks with cookie secret or IP plus user-agent matching.
 - Cookie helpers for session and verification-bound cookies.
+- Docker Compose backed E2E coverage with Mailpit and a local auth test app.
 - Works well with Fresh, Hono, and custom Deno HTTP services.
 
 ## Install
@@ -46,6 +50,8 @@ const auth = new DenoKvMagicLinkAuth(
   {
     appBaseUrl: "https://app.example.local",
     appName: "Synit Console",
+    allowedEmailPatterns: ["*@example.local", "owner@partner.example"],
+    initialSuperAdminEmail: "admin@example.local",
   },
   {
     kv,
@@ -118,6 +124,11 @@ const auth = new DenoKvMagicLinkAuth(
     magicLinkTtlMinutes: 10,
     sessionIdleTtlDays: 7,
     sessionAbsoluteTtlDays: 30,
+    allowedEmailPatterns: ["*@example.local", "ceo@partner.example"],
+    initialSuperAdminEmail: "admin@example.local",
+    failedAuthRateLimitMaxAttempts: 5,
+    failedAuthRateLimitWindowMinutes: 15,
+    failedAuthRateLimitBlockMinutes: 15,
   },
   {
     kv,
@@ -259,6 +270,19 @@ declare function lookupUserById(id: string): Promise<
 - `getSession(sessionId)` returns a valid session record or `null`.
 - `revokeSession(sessionId)` deletes a session from Deno KV.
 
+### Config highlights
+
+- `allowedEmailPatterns` accepts exact addresses such as `"admin@example.com"`
+  and domain wildcards such as `"*@example.com"`. When omitted or empty, all
+  email addresses are allowed.
+- `initialSuperAdminEmail` marks the matching authenticated user as
+  `isSuperAdmin` in both `verifyMagicLink()` results and persisted session
+  records.
+- `failedAuthRateLimitMaxAttempts`, `failedAuthRateLimitWindowMinutes`, and
+  `failedAuthRateLimitBlockMinutes` throttle repeated failed login requests from
+  the same IP address. Only failed `issueMagicLink()` attempts count toward the
+  limit.
+
 ### Cookie helpers
 
 - `buildSessionSetCookie`
@@ -269,6 +293,8 @@ declare function lookupUserById(id: string): Promise<
 
 ## Security notes
 
+- Email requests can be restricted to explicit addresses or whole domains.
+- Repeated failed login requests from the same IP are temporarily blocked.
 - Redirect targets are constrained to the configured application origin.
 - Link verification requires either a matching binding secret or a matching IP
   plus user-agent pair.
@@ -278,6 +304,18 @@ declare function lookupUserById(id: string): Promise<
 ## Development
 
 See [DEVELOPMENT.md](./DEVELOPMENT.md) for local checks and release workflow.
+
+## E2E testing
+
+Run the Docker Compose based end-to-end suite with:
+
+```bash
+deno task e2e
+```
+
+This boots a local Mailpit SMTP server plus a small Deno HTTP app that uses this
+package with a real SMTP transport, runs the E2E tests, and tears the stack down
+automatically.
 
 ## License
 

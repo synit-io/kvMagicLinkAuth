@@ -1,6 +1,8 @@
 import type {
   DenoKvMagicLinkAuthConfig,
   DenoKvMagicLinkAuthDeps,
+  FailedAuthAttemptRecord,
+  MagicLinkAuthUser,
   MagicLinkIssueInput,
   MagicLinkIssueResult,
   MagicLinkRecord,
@@ -46,6 +48,49 @@ function assertPositiveInteger(value: number, label: string): number {
     throw new Error(`${label} must be a positive integer.`);
   }
   return value;
+}
+
+function assertOptionalEmailPattern(
+  value: string,
+  label: string,
+): string {
+  const normalized = normalizeEmail(value);
+  if (!normalized) {
+    throw new Error(`${label} entries must not be empty.`);
+  }
+  if (normalized.startsWith("*@")) {
+    const domain = normalized.slice(2);
+    if (!domain || domain.includes("*") || !domain.includes(".")) {
+      throw new Error(
+        `${label} wildcard entries must use the format "*@domain.tld".`,
+      );
+    }
+    return `*@${domain}`;
+  }
+  if (normalized.includes("*")) {
+    throw new Error(
+      `${label} entries must be exact email addresses or "*@domain.tld".`,
+    );
+  }
+  const atIndex = normalized.indexOf("@");
+  if (atIndex <= 0 || atIndex === normalized.length - 1) {
+    throw new Error(
+      `${label} entries must be exact email addresses or "*@domain.tld".`,
+    );
+  }
+  return normalized;
+}
+
+function assertEmailAddress(value: string, label: string): string {
+  const normalized = normalizeEmail(value);
+  const atIndex = normalized.indexOf("@");
+  if (
+    !normalized || normalized.includes("*") || atIndex <= 0 ||
+    atIndex === normalized.length - 1
+  ) {
+    throw new Error(`${label} must be an exact email address.`);
+  }
+  return normalized;
 }
 
 function assertAppBaseUrl(value: string): string {
@@ -104,6 +149,31 @@ export class DenoKvMagicLinkAuth {
       ),
       authDevExposeMagicLink: config.authDevExposeMagicLink ?? false,
       sendEmailInDebugMode: config.sendEmailInDebugMode ?? false,
+      allowedEmailPatterns: Array.from(
+        new Set(
+          (config.allowedEmailPatterns ?? []).map((entry) =>
+            assertOptionalEmailPattern(entry, "allowedEmailPatterns")
+          ),
+        ),
+      ),
+      initialSuperAdminEmail: config.initialSuperAdminEmail
+        ? assertEmailAddress(
+          config.initialSuperAdminEmail,
+          "initialSuperAdminEmail",
+        )
+        : "",
+      failedAuthRateLimitMaxAttempts: assertPositiveInteger(
+        config.failedAuthRateLimitMaxAttempts ?? 5,
+        "failedAuthRateLimitMaxAttempts",
+      ),
+      failedAuthRateLimitWindowMinutes: assertPositiveInteger(
+        config.failedAuthRateLimitWindowMinutes ?? 15,
+        "failedAuthRateLimitWindowMinutes",
+      ),
+      failedAuthRateLimitBlockMinutes: assertPositiveInteger(
+        config.failedAuthRateLimitBlockMinutes ?? 15,
+        "failedAuthRateLimitBlockMinutes",
+      ),
       keyPrefix: normalizeOptionalString(config.keyPrefix) ?? "dka",
     };
     this.deps = deps;
@@ -117,23 +187,123 @@ export class DenoKvMagicLinkAuth {
     return [this.config.keyPrefix, scope, id];
   }
 
+  private isEmailAllowed(email: string): boolean {
+    if (this.config.allowedEmailPatterns.length === 0) return true;
+    return this.config.allowedEmailPatterns.some((pattern) => {
+      if (pattern.startsWith("*@")) {
+        return email.endsWith(pattern.slice(1));
+      }
+      return email === pattern;
+    });
+  }
+
+  private isInitialSuperAdmin(email: string): boolean {
+    return Boolean(
+      this.config.initialSuperAdminEmail &&
+        email === this.config.initialSuperAdminEmail,
+    );
+  }
+
+  private resolveUser(user: MagicLinkAuthUser): MagicLinkAuthUser {
+    const normalizedEmail = normalizeEmail(user.email);
+    const isSuperAdmin = user.isSuperAdmin ??
+      this.isInitialSuperAdmin(normalizedEmail);
+    return {
+      ...user,
+      email: normalizedEmail,
+      isSuperAdmin,
+    };
+  }
+
+  private async getFailedAttemptState(
+    requestIp: string | null,
+  ): Promise<Deno.KvEntryMaybe<FailedAuthAttemptRecord> | null> {
+    if (!requestIp) return null;
+    return await this.deps.kv.get<FailedAuthAttemptRecord>(
+      this.key("failed_auth_attempts", requestIp),
+      { consistency: "strong" },
+    );
+  }
+
+  private async isIpBlocked(
+    requestIp: string | null,
+    now: Date,
+  ): Promise<boolean> {
+    const entry = await this.getFailedAttemptState(requestIp);
+    if (!entry?.value?.blockedUntil) return false;
+    return Date.parse(entry.value.blockedUntil) > now.getTime();
+  }
+
+  private async registerFailedAttempt(
+    requestIp: string | null,
+    now: Date,
+  ): Promise<void> {
+    if (!requestIp) return;
+
+    const entry = await this.getFailedAttemptState(requestIp);
+    const nowMs = now.getTime();
+    const windowMs = this.config.failedAuthRateLimitWindowMinutes * 60 * 1000;
+    const blockMs = this.config.failedAuthRateLimitBlockMinutes * 60 * 1000;
+    const count = entry?.value &&
+        Date.parse(entry.value.lastAttemptAt) > nowMs - windowMs
+      ? entry.value.count + 1
+      : 1;
+    const blockedUntil = count >= this.config.failedAuthRateLimitMaxAttempts
+      ? new Date(nowMs + blockMs).toISOString()
+      : null;
+    const record: FailedAuthAttemptRecord = {
+      count,
+      lastAttemptAt: now.toISOString(),
+      blockedUntil,
+    };
+
+    if (entry?.value) {
+      const tx = await this.deps.kv.atomic()
+        .check({ key: entry.key, versionstamp: entry.versionstamp })
+        .set(this.key("failed_auth_attempts", requestIp), record, {
+          expireIn: Math.max(windowMs, blockMs),
+        })
+        .commit();
+      if (tx.ok) return;
+    }
+
+    await this.deps.kv.set(
+      this.key("failed_auth_attempts", requestIp),
+      record,
+      {
+        expireIn: Math.max(windowMs, blockMs),
+      },
+    );
+  }
+
   /** Issues a one-time magic link for an active user and stores its verification record in Deno KV. */
   async issueMagicLink(
     input: MagicLinkIssueInput,
   ): Promise<MagicLinkIssueResult> {
     const normalizedEmail = normalizeEmail(input.email);
+    const requestIp = normalizeOptionalString(input.requestIp);
     if (!normalizedEmail) {
+      return { sent: false };
+    }
+
+    const now = this.now();
+    if (await this.isIpBlocked(requestIp, now)) {
+      return { sent: false };
+    }
+
+    if (!this.isEmailAllowed(normalizedEmail)) {
+      await this.registerFailedAttempt(requestIp, now);
       return { sent: false };
     }
 
     const user = await this.deps.findUserByEmail(normalizedEmail);
     if (!user || !user.active) {
+      await this.registerFailedAttempt(requestIp, now);
       return { sent: false };
     }
 
     const token = randomToken();
     const tokenHash = await sha256Hex(token);
-    const now = this.now();
     const nowIso = now.toISOString();
     const ttlMs = this.config.magicLinkTtlMinutes * 60 * 1000;
 
@@ -155,7 +325,7 @@ export class DenoKvMagicLinkAuth {
       expiresAt: new Date(now.getTime() + ttlMs).toISOString(),
       usedAt: null,
       redirectTo: sanitizeRedirectTo(input.redirectTo, this.config.appBaseUrl),
-      issuedFromIp: normalizeOptionalString(input.requestIp),
+      issuedFromIp: requestIp,
       issuedUserAgentHash,
       bindingHash,
     };
@@ -253,13 +423,15 @@ export class DenoKvMagicLinkAuth {
 
     const user = await this.deps.findUserById(linkEntry.value.userId);
     if (!user || !user.active) return null;
+    const resolvedUser = this.resolveUser(user);
 
     const sessionId = randomToken(24);
     const session: SessionRecord = {
-      userId: user.id,
-      userEmail: user.email,
-      role: user.role ?? "viewer",
-      authVersion: user.authVersion,
+      userId: resolvedUser.id,
+      userEmail: resolvedUser.email,
+      role: resolvedUser.role ?? "viewer",
+      isSuperAdmin: resolvedUser.isSuperAdmin ?? false,
+      authVersion: resolvedUser.authVersion,
       createdAt: now.toISOString(),
       lastSeenAt: now.toISOString(),
       idleExpiresAt: new Date(
@@ -290,7 +462,7 @@ export class DenoKvMagicLinkAuth {
     return {
       sessionId,
       redirectTo: linkEntry.value.redirectTo || "/admin/dashboard",
-      user,
+      user: resolvedUser,
     };
   }
 

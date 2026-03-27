@@ -12,6 +12,7 @@ export { DenoKvMagicLinkAuth } from "./service.ts";
 export type {
   DenoKvMagicLinkAuthConfig,
   DenoKvMagicLinkAuthDeps,
+  FailedAuthAttemptRecord,
   MagicLinkAuthUser,
   MagicLinkIssueInput,
   MagicLinkIssueResult,

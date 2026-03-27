@@ -3,6 +3,7 @@ import {
   assertEquals,
   assertMatch,
   assertRejects,
+  assertStrictEquals,
   assertThrows,
 } from "@std/assert";
 
@@ -115,6 +116,57 @@ Deno.test("issueMagicLink normalizes email and exposes debug URL in debug mode",
     assert(verified);
     assertEquals(verified.redirectTo, "/dashboard");
     assertEquals(verified.user.id, DEFAULT_USER.id);
+    assertEquals(verified.user.email, "admin@example.com");
+  });
+});
+
+Deno.test("issueMagicLink only allows configured email addresses and domains", async () => {
+  await withTestKv(async (kv) => {
+    const allowedUser: MagicLinkAuthUser = {
+      id: "user-2",
+      email: "allowed@other.example",
+      authVersion: 1,
+      active: true,
+      role: "editor",
+    };
+    const auth = new DenoKvMagicLinkAuth(
+      {
+        appBaseUrl: "https://app.example.com",
+        authDevExposeMagicLink: true,
+        allowedEmailPatterns: ["*@example.com", "allowed@other.example"],
+      },
+      {
+        kv,
+        findUserByEmail: (email) =>
+          Promise.resolve(
+            [DEFAULT_USER, allowedUser].find((user) =>
+              user.email.toLowerCase() === email
+            ) ?? null,
+          ),
+        findUserById: (id) =>
+          Promise.resolve(
+            [DEFAULT_USER, allowedUser].find((user) => user.id === id) ?? null,
+          ),
+      },
+    );
+
+    const allowedByDomain = await auth.issueMagicLink({
+      email: DEFAULT_USER.email,
+      requestIp: "10.0.0.5",
+    });
+    const blocked = await auth.issueMagicLink({
+      email: "blocked@outside.example",
+      requestIp: "10.0.0.5",
+    });
+    const allowedByExactAddress = await auth.issueMagicLink({
+      email: "allowed@other.example",
+      requestIp: "10.0.0.6",
+    });
+
+    assert(allowedByDomain.debugUrl);
+    assertEquals(blocked.sent, false);
+    assertStrictEquals(blocked.debugUrl, undefined);
+    assert(allowedByExactAddress.debugUrl);
   });
 });
 
@@ -288,6 +340,68 @@ Deno.test("sendMail is used when enabled and issueMagicLink reports sent=true", 
   });
 });
 
+Deno.test("verifyMagicLink marks the configured initial super admin in user and session state", async () => {
+  await withTestKv(async (kv) => {
+    const auth = new DenoKvMagicLinkAuth(
+      {
+        appBaseUrl: "https://app.example.com",
+        authDevExposeMagicLink: true,
+        initialSuperAdminEmail: "admin@example.com",
+      },
+      createDeps(kv),
+    );
+
+    const issued = await auth.issueMagicLink({
+      email: DEFAULT_USER.email,
+      requestIp: "10.0.0.5",
+      userAgent: "Browser",
+    });
+    const verified = await auth.verifyMagicLink({
+      token: tokenFromUrl(issued.debugUrl!),
+      requestIp: "10.0.0.5",
+      userAgent: "browser",
+    });
+
+    assert(verified);
+    assertEquals(verified.user.isSuperAdmin, true);
+
+    const session = await auth.getSession(verified.sessionId);
+    assert(session);
+    assertEquals(session.isSuperAdmin, true);
+  });
+});
+
+Deno.test("issueMagicLink rate limits repeated failed attempts per IP", async () => {
+  await withTestKv(async (kv) => {
+    const auth = new DenoKvMagicLinkAuth(
+      {
+        appBaseUrl: "https://app.example.com",
+        authDevExposeMagicLink: true,
+        failedAuthRateLimitMaxAttempts: 3,
+        failedAuthRateLimitWindowMinutes: 15,
+        failedAuthRateLimitBlockMinutes: 30,
+      },
+      createDeps(kv),
+    );
+
+    for (let index = 0; index < 3; index += 1) {
+      const result = await auth.issueMagicLink({
+        email: `unknown-${index}@example.com`,
+        requestIp: "203.0.113.10",
+      });
+      assertEquals(result.sent, false);
+    }
+
+    const blocked = await auth.issueMagicLink({
+      email: DEFAULT_USER.email,
+      requestIp: "203.0.113.10",
+    });
+
+    assertEquals(blocked.sent, false);
+    assertStrictEquals(blocked.debugUrl, undefined);
+  });
+});
+
 Deno.test("cookie helpers encode values, reject invalid names, and tolerate malformed input", () => {
   const headers = new Headers({
     cookie: "session=abc%20123; other=test",
@@ -345,5 +459,21 @@ Deno.test("constructor validates config", () => {
       }),
     Error,
     "appBaseUrl must use http or https.",
+  );
+
+  assertRejects(
+    () =>
+      withTestKv((kv) => {
+        new DenoKvMagicLinkAuth(
+          {
+            appBaseUrl: "https://app.example.com",
+            allowedEmailPatterns: ["admin*@example.com"],
+          },
+          createDeps(kv),
+        );
+        return Promise.resolve();
+      }),
+    Error,
+    'allowedEmailPatterns entries must be exact email addresses or "*@domain.tld".',
   );
 });

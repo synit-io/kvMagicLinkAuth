@@ -11,6 +11,7 @@ Install dependencies and run the standard quality gates:
 deno fmt
 deno lint
 deno test --unstable-kv --allow-read --allow-write
+deno task e2e
 ```
 
 Or use the bundled task:
@@ -18,6 +19,10 @@ Or use the bundled task:
 ```bash
 deno task check
 ```
+
+`deno task e2e` requires Docker with Docker Compose. It starts Mailpit and a
+containerized Deno test app, executes the E2E suite against the running stack,
+and removes the containers afterward.
 
 ## Why tests need file permissions
 
@@ -30,8 +35,9 @@ for `deno test`.
 1. Update public API docs in `README.md` when behavior changes.
 2. Add the release notes to `CHANGELOG.md`.
 3. Run `deno task check`.
-4. Run `deno publish --dry-run` to validate JSR package contents.
-5. Publish the package with `deno publish` once the dry run is clean.
+4. Run `deno task e2e`.
+5. Run `deno publish --dry-run` to validate JSR package contents.
+6. Publish the package with `deno publish` once the dry run is clean.
 
 ## Design notes
 
