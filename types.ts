@@ -14,6 +14,21 @@ export interface MagicLinkAuthUser {
   isSuperAdmin?: boolean;
 }
 
+/** Static RBAC role-to-permission mapping configured by the application. */
+export interface MagicLinkRbacConfig {
+  enabled?: boolean;
+  roles: Record<string, readonly string[]>;
+  defaultRole?: string;
+  permissionsVersion?: number;
+}
+
+/** Minimal authorization snapshot cached on the session for fast request-time checks. */
+export interface SessionAuthorizationSnapshot {
+  role: string;
+  permissions: string[];
+  permissionsVersion: number;
+}
+
 /** Stored Deno KV record for an issued magic link. */
 export interface MagicLinkRecord {
   userId: string;
@@ -34,6 +49,7 @@ export interface SessionRecord {
   role: string;
   isSuperAdmin: boolean;
   authVersion: number;
+  authorization?: SessionAuthorizationSnapshot;
   createdAt: string;
   lastSeenAt: string;
   idleExpiresAt: string;
@@ -110,6 +126,7 @@ export interface DenoKvMagicLinkAuthConfig {
   failedAuthRateLimitWindowMinutes?: number;
   failedAuthRateLimitBlockMinutes?: number;
   keyPrefix?: string;
+  rbac?: MagicLinkRbacConfig;
 }
 
 /** Dependencies injected into the magic-link auth service. */

@@ -5,9 +5,11 @@ import type {
   MagicLinkAuthUser,
   MagicLinkIssueInput,
   MagicLinkIssueResult,
+  MagicLinkRbacConfig,
   MagicLinkRecord,
   MagicLinkVerifyInput,
   MagicLinkVerifyResult,
+  SessionAuthorizationSnapshot,
   SessionRecord,
 } from "./types.ts";
 
@@ -24,6 +26,10 @@ function normalizeOptionalString(value?: string | null): string | null {
 function normalizeUserAgent(value?: string | null): string | null {
   const normalized = normalizeOptionalString(value)?.toLowerCase();
   return normalized || null;
+}
+
+function normalizeKey(value: string): string {
+  return value.trim().toLowerCase();
 }
 
 function randomToken(bytes = 32): string {
@@ -120,11 +126,99 @@ function sanitizeRedirectTo(
   }
 }
 
+interface NormalizedRbacConfig {
+  enabled: boolean;
+  roles: Readonly<Record<string, readonly string[]>>;
+  defaultRole: string | null;
+  permissionsVersion: number;
+}
+
+interface InternalConfig {
+  appBaseUrl: string;
+  appName: string;
+  magicLinkTtlMinutes: number;
+  sessionIdleTtlDays: number;
+  sessionAbsoluteTtlDays: number;
+  authDevExposeMagicLink: boolean;
+  sendEmailInDebugMode: boolean;
+  allowedEmailPatterns: string[];
+  initialSuperAdminEmail: string;
+  failedAuthRateLimitMaxAttempts: number;
+  failedAuthRateLimitWindowMinutes: number;
+  failedAuthRateLimitBlockMinutes: number;
+  keyPrefix: string;
+  rbac: NormalizedRbacConfig;
+}
+
+function assertNonEmptyKey(value: string, label: string): string {
+  const normalized = normalizeKey(value);
+  if (!normalized) {
+    throw new Error(`${label} must not be empty.`);
+  }
+  return normalized;
+}
+
+function assertRbacConfig(
+  value: MagicLinkRbacConfig | undefined,
+): NormalizedRbacConfig {
+  if (!value?.enabled) {
+    return {
+      enabled: false,
+      roles: Object.freeze({}),
+      defaultRole: null,
+      permissionsVersion: 1,
+    };
+  }
+
+  const normalizedRoles = Object.entries(value.roles ?? {}).reduce<
+    Record<string, readonly string[]>
+  >((acc, [role, permissions]) => {
+    const normalizedRole = assertNonEmptyKey(role, "rbac role");
+    if (!Array.isArray(permissions) || permissions.length === 0) {
+      throw new Error(
+        `rbac role "${normalizedRole}" must define at least one permission.`,
+      );
+    }
+    acc[normalizedRole] = Object.freeze(Array.from(
+      new Set(
+        permissions.map((permission) =>
+          assertNonEmptyKey(
+            permission,
+            `rbac role "${normalizedRole}" permission`,
+          )
+        ),
+      ),
+    ));
+    return acc;
+  }, {});
+
+  if (Object.keys(normalizedRoles).length === 0) {
+    throw new Error(
+      "rbac.roles must define at least one role when RBAC is enabled.",
+    );
+  }
+
+  const defaultRole = value.defaultRole
+    ? assertNonEmptyKey(value.defaultRole, "rbac.defaultRole")
+    : null;
+  if (defaultRole && !normalizedRoles[defaultRole]) {
+    throw new Error("rbac.defaultRole must reference a configured role.");
+  }
+
+  return {
+    enabled: true,
+    roles: Object.freeze(normalizedRoles),
+    defaultRole,
+    permissionsVersion: assertPositiveInteger(
+      value.permissionsVersion ?? 1,
+      "rbac.permissionsVersion",
+    ),
+  };
+}
+
 /** Deno KV backed magic-link authentication service for server-side Deno applications. */
 export class DenoKvMagicLinkAuth {
-  private config: Required<Omit<DenoKvMagicLinkAuthConfig, "appBaseUrl">> & {
-    appBaseUrl: string;
-  };
+  private config: InternalConfig;
   private deps: DenoKvMagicLinkAuthDeps;
 
   /** Creates a new auth service with package configuration and injected application dependencies. */
@@ -175,6 +269,7 @@ export class DenoKvMagicLinkAuth {
         "failedAuthRateLimitBlockMinutes",
       ),
       keyPrefix: normalizeOptionalString(config.keyPrefix) ?? "dka",
+      rbac: assertRbacConfig(config.rbac),
     };
     this.deps = deps;
   }
@@ -211,7 +306,30 @@ export class DenoKvMagicLinkAuth {
     return {
       ...user,
       email: normalizedEmail,
+      role: user.role ? normalizeKey(user.role) : undefined,
       isSuperAdmin,
+    };
+  }
+
+  private resolveAuthorization(
+    user: MagicLinkAuthUser,
+  ): SessionAuthorizationSnapshot | undefined {
+    if (!this.config.rbac.enabled) return undefined;
+
+    // Resolve RBAC state once during login so later permission checks do not
+    // require additional KV or database lookups.
+    const configuredRole = user.role ? normalizeKey(user.role) : "";
+    const effectiveRole = configuredRole || this.config.rbac.defaultRole || "";
+    if (!effectiveRole || !this.config.rbac.roles[effectiveRole]) {
+      throw new Error(
+        "Authenticated user does not resolve to a configured RBAC role.",
+      );
+    }
+
+    return {
+      role: effectiveRole,
+      permissions: [...this.config.rbac.roles[effectiveRole]],
+      permissionsVersion: this.config.rbac.permissionsVersion,
     };
   }
 
@@ -225,22 +343,21 @@ export class DenoKvMagicLinkAuth {
     );
   }
 
-  private async isIpBlocked(
-    requestIp: string | null,
+  private isBlockedAttempt(
+    entry: Deno.KvEntryMaybe<FailedAuthAttemptRecord> | null,
     now: Date,
-  ): Promise<boolean> {
-    const entry = await this.getFailedAttemptState(requestIp);
+  ): boolean {
     if (!entry?.value?.blockedUntil) return false;
     return Date.parse(entry.value.blockedUntil) > now.getTime();
   }
 
   private async registerFailedAttempt(
     requestIp: string | null,
+    entry: Deno.KvEntryMaybe<FailedAuthAttemptRecord> | null,
     now: Date,
   ): Promise<void> {
     if (!requestIp) return;
 
-    const entry = await this.getFailedAttemptState(requestIp);
     const nowMs = now.getTime();
     const windowMs = this.config.failedAuthRateLimitWindowMinutes * 60 * 1000;
     const blockMs = this.config.failedAuthRateLimitBlockMinutes * 60 * 1000;
@@ -287,18 +404,19 @@ export class DenoKvMagicLinkAuth {
     }
 
     const now = this.now();
-    if (await this.isIpBlocked(requestIp, now)) {
+    const failedAttemptEntry = await this.getFailedAttemptState(requestIp);
+    if (this.isBlockedAttempt(failedAttemptEntry, now)) {
       return { sent: false };
     }
 
     if (!this.isEmailAllowed(normalizedEmail)) {
-      await this.registerFailedAttempt(requestIp, now);
+      await this.registerFailedAttempt(requestIp, failedAttemptEntry, now);
       return { sent: false };
     }
 
     const user = await this.deps.findUserByEmail(normalizedEmail);
     if (!user || !user.active) {
-      await this.registerFailedAttempt(requestIp, now);
+      await this.registerFailedAttempt(requestIp, failedAttemptEntry, now);
       return { sent: false };
     }
 
@@ -425,13 +543,17 @@ export class DenoKvMagicLinkAuth {
     if (!user || !user.active) return null;
     const resolvedUser = this.resolveUser(user);
 
+    // The session stores only a minimal authorization snapshot so request-time
+    // RBAC checks can stay in memory after a single session load.
+    const authorization = this.resolveAuthorization(resolvedUser);
     const sessionId = randomToken(24);
     const session: SessionRecord = {
       userId: resolvedUser.id,
       userEmail: resolvedUser.email,
-      role: resolvedUser.role ?? "viewer",
+      role: authorization?.role ?? resolvedUser.role ?? "viewer",
       isSuperAdmin: resolvedUser.isSuperAdmin ?? false,
       authVersion: resolvedUser.authVersion,
+      authorization,
       createdAt: now.toISOString(),
       lastSeenAt: now.toISOString(),
       idleExpiresAt: new Date(
@@ -474,6 +596,8 @@ export class DenoKvMagicLinkAuth {
     );
     if (!entry.value) return null;
 
+    // Keep session reads side-effect free so normal authenticated requests stay
+    // at one KV read and do not turn into read-plus-write traffic.
     const nowMs = this.now().getTime();
     if (entry.value.revokedAt) return null;
     if (Date.parse(entry.value.idleExpiresAt) <= nowMs) return null;

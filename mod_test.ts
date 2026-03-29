@@ -14,11 +14,16 @@ import {
   buildSessionSetCookie,
   DenoKvMagicLinkAuth,
   getCookie,
+  hasAnyPermission,
+  hasPermission,
+  hasRole,
+  isSessionAuthorizationCurrent,
 } from "./mod.ts";
 import type {
   DenoKvMagicLinkAuthDeps,
   MagicLinkAuthUser,
   SendMailPayload,
+  SessionRecord,
 } from "./types.ts";
 
 const DEFAULT_USER: MagicLinkAuthUser = {
@@ -371,6 +376,154 @@ Deno.test("verifyMagicLink marks the configured initial super admin in user and 
   });
 });
 
+Deno.test("verifyMagicLink persists an RBAC authorization snapshot for fast permission checks", async () => {
+  await withTestKv(async (kv) => {
+    const auth = new DenoKvMagicLinkAuth(
+      {
+        appBaseUrl: "https://app.example.com",
+        authDevExposeMagicLink: true,
+        rbac: {
+          enabled: true,
+          roles: {
+            viewer: ["dashboard:read"],
+            admin: ["dashboard:read", "users:manage"],
+          },
+          defaultRole: "viewer",
+          permissionsVersion: 3,
+        },
+      },
+      createDeps(kv),
+    );
+
+    const issued = await auth.issueMagicLink({
+      email: DEFAULT_USER.email,
+      requestIp: "10.0.0.5",
+      userAgent: "Browser",
+    });
+    const verified = await auth.verifyMagicLink({
+      token: tokenFromUrl(issued.debugUrl!),
+      requestIp: "10.0.0.5",
+      userAgent: "browser",
+    });
+
+    assert(verified);
+    const session = await auth.getSession(verified.sessionId);
+    assert(session);
+    assertEquals(session.role, "admin");
+    assertEquals(session.authorization, {
+      role: "admin",
+      permissions: ["dashboard:read", "users:manage"],
+      permissionsVersion: 3,
+    });
+    assertEquals(hasRole(session, "admin"), true);
+    assertEquals(hasPermission(session, "users:manage"), true);
+    assertEquals(
+      hasAnyPermission(session, ["billing:manage", "users:manage"]),
+      true,
+    );
+    assertEquals(hasPermission(session, "billing:manage"), false);
+    assertEquals(
+      isSessionAuthorizationCurrent(session, {
+        authVersion: DEFAULT_USER.authVersion,
+        permissionsVersion: 3,
+      }),
+      true,
+    );
+
+    const storedSession = session as unknown as Record<string, unknown>;
+    assertEquals("bindingHash" in storedSession, false);
+    assertEquals("token" in storedSession, false);
+  });
+});
+
+Deno.test("RBAC default role applies when the user has no explicit role", async () => {
+  await withTestKv(async (kv) => {
+    const auth = new DenoKvMagicLinkAuth(
+      {
+        appBaseUrl: "https://app.example.com",
+        authDevExposeMagicLink: true,
+        rbac: {
+          enabled: true,
+          roles: {
+            viewer: ["dashboard:read"],
+            editor: ["dashboard:read", "posts:edit"],
+          },
+          defaultRole: "viewer",
+        },
+      },
+      createDeps(kv, {
+        user: {
+          ...DEFAULT_USER,
+          role: undefined,
+        },
+      }),
+    );
+
+    const issued = await auth.issueMagicLink({
+      email: DEFAULT_USER.email,
+      requestIp: "10.0.0.5",
+      userAgent: "Browser",
+    });
+    const verified = await auth.verifyMagicLink({
+      token: tokenFromUrl(issued.debugUrl!),
+      requestIp: "10.0.0.5",
+      userAgent: "browser",
+    });
+
+    assert(verified);
+    const session = await auth.getSession(verified.sessionId);
+    assert(session);
+    assertEquals(session.role, "viewer");
+    assertEquals(hasPermission(session, "dashboard:read"), true);
+  });
+});
+
+Deno.test("authorization helpers fail closed for legacy sessions without an RBAC snapshot", () => {
+  const session: SessionRecord = {
+    userId: "user-1",
+    userEmail: "admin@example.com",
+    role: "admin",
+    isSuperAdmin: false,
+    authVersion: 1,
+    createdAt: "2026-03-20T10:00:00.000Z",
+    lastSeenAt: "2026-03-20T10:00:00.000Z",
+    idleExpiresAt: "2026-03-21T10:00:00.000Z",
+    absoluteExpiresAt: "2026-03-22T10:00:00.000Z",
+    revokedAt: null,
+  };
+
+  assertEquals(hasRole(session, "admin"), true);
+  assertEquals(hasPermission(session, "users:manage"), false);
+  assertEquals(hasAnyPermission(session, ["users:manage"]), false);
+  assertEquals(
+    isSessionAuthorizationCurrent(session, { permissionsVersion: 1 }),
+    false,
+  );
+});
+
+Deno.test("super admins bypass RBAC permission checks", () => {
+  const session: SessionRecord = {
+    userId: "user-1",
+    userEmail: "admin@example.com",
+    role: "viewer",
+    isSuperAdmin: true,
+    authVersion: 1,
+    authorization: {
+      role: "viewer",
+      permissions: ["dashboard:read"],
+      permissionsVersion: 1,
+    },
+    createdAt: "2026-03-20T10:00:00.000Z",
+    lastSeenAt: "2026-03-20T10:00:00.000Z",
+    idleExpiresAt: "2026-03-21T10:00:00.000Z",
+    absoluteExpiresAt: "2026-03-22T10:00:00.000Z",
+    revokedAt: null,
+  };
+
+  assertEquals(hasRole(session, "admin"), true);
+  assertEquals(hasPermission(session, "users:manage"), true);
+});
+
 Deno.test("issueMagicLink rate limits repeated failed attempts per IP", async () => {
   await withTestKv(async (kv) => {
     const auth = new DenoKvMagicLinkAuth(
@@ -475,5 +628,46 @@ Deno.test("constructor validates config", () => {
       }),
     Error,
     'allowedEmailPatterns entries must be exact email addresses or "*@domain.tld".',
+  );
+
+  assertRejects(
+    () =>
+      withTestKv((kv) => {
+        new DenoKvMagicLinkAuth(
+          {
+            appBaseUrl: "https://app.example.com",
+            rbac: {
+              enabled: true,
+              roles: {},
+            },
+          },
+          createDeps(kv),
+        );
+        return Promise.resolve();
+      }),
+    Error,
+    "rbac.roles must define at least one role when RBAC is enabled.",
+  );
+
+  assertRejects(
+    () =>
+      withTestKv((kv) => {
+        new DenoKvMagicLinkAuth(
+          {
+            appBaseUrl: "https://app.example.com",
+            rbac: {
+              enabled: true,
+              roles: {
+                viewer: ["dashboard:read"],
+              },
+              defaultRole: "admin",
+            },
+          },
+          createDeps(kv),
+        );
+        return Promise.resolve();
+      }),
+    Error,
+    "rbac.defaultRole must reference a configured role.",
   );
 });

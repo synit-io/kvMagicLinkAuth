@@ -2,6 +2,21 @@
 
 All notable changes to this package are documented in this file.
 
+## Unreleased
+
+- Added optional RBAC support with config-driven role-to-permission mappings,
+  session-cached authorization snapshots, and pure helper APIs for role and
+  permission checks.
+- Added `hasRole()`, `hasPermission()`, `hasAnyPermission()`, `isSuperAdmin()`,
+  and `isSessionAuthorizationCurrent()` exports.
+- Reduced failed-auth KV overhead by reusing the same failed-attempt state read
+  during `issueMagicLink()` instead of reloading it for each failed attempt.
+- Expanded tests to cover RBAC snapshots, helper behavior, super-admin bypass,
+  and RBAC config validation.
+- Rewrote `README.md` with improved getting-started guidance, secure
+  authentication flow examples, low-KV usage guidance, and basic plus advanced
+  RBAC examples.
+
 ## 0.1.2 - 2026-03-27
 
 - Added `allowedEmailPatterns` config support for exact email-address
