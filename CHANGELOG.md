@@ -2,7 +2,7 @@
 
 All notable changes to this package are documented in this file.
 
-## Unreleased
+## 0.2.0 - 2026-03-29
 
 - Added optional RBAC support with config-driven role-to-permission mappings,
   session-cached authorization snapshots, and pure helper APIs for role and
