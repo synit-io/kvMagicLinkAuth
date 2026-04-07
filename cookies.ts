@@ -4,7 +4,7 @@ export interface MagicLinkCookieConfig {
   sessionCookieName?: string;
   /** Cookie name used to bind the verification request to the issuing browser. Defaults to `"ml_bind"`. */
   bindingCookieName?: string;
-  /** Adds the `Secure` attribute when set to `true`. */
+  /** Adds the `Secure` attribute. Enabled by default; set to `false` only for local HTTP development. */
   secure?: boolean;
   /** Session cookie lifetime in days. Defaults to `30`. */
   sessionAbsoluteTtlDays?: number;
@@ -23,7 +23,7 @@ function cookieBase(maxAgeSeconds: number, secure: boolean): string {
   const parts = [
     "Path=/",
     "HttpOnly",
-    "SameSite=Lax",
+    "SameSite=Strict",
     `Max-Age=${maxAgeSeconds}`,
   ];
   if (secure) parts.push("Secure");
@@ -34,7 +34,7 @@ function bindingCookieBase(maxAgeSeconds: number, secure: boolean): string {
   const parts = [
     "Path=/api/auth/magic-link/verify",
     "HttpOnly",
-    "SameSite=Lax",
+    "SameSite=Strict",
     `Max-Age=${maxAgeSeconds}`,
   ];
   if (secure) parts.push("Secure");
@@ -69,7 +69,7 @@ export function buildSessionSetCookie(
   );
   const ttlDays = config.sessionAbsoluteTtlDays ?? 30;
   return `${cookieName}=${encodeURIComponent(sessionId)}; ${
-    cookieBase(ttlDays * 24 * 60 * 60, Boolean(config.secure))
+    cookieBase(ttlDays * 24 * 60 * 60, config.secure ?? true)
   }`;
 }
 
@@ -82,7 +82,7 @@ export function buildSessionClearCookie(
     "session",
   );
   return `${cookieName}=; ${
-    cookieBase(0, Boolean(config.secure))
+    cookieBase(0, config.secure ?? true)
   }; Expires=Thu, 01 Jan 1970 00:00:00 GMT`;
 }
 
@@ -97,7 +97,7 @@ export function buildBindingSetCookie(
     "binding",
   );
   return `${cookieName}=${encodeURIComponent(value)}; ${
-    bindingCookieBase(maxAgeSeconds, Boolean(config.secure))
+    bindingCookieBase(maxAgeSeconds, config.secure ?? true)
   }`;
 }
 
@@ -110,6 +110,6 @@ export function buildBindingClearCookie(
     "binding",
   );
   return `${cookieName}=; ${
-    bindingCookieBase(0, Boolean(config.secure))
+    bindingCookieBase(0, config.secure ?? true)
   }; Expires=Thu, 01 Jan 1970 00:00:00 GMT`;
 }

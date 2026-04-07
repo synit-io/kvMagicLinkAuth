@@ -800,10 +800,13 @@ These helpers are pure. They do not read from KV.
 - Email requests can be restricted to explicit addresses or whole domains
 - Repeated failed login requests from the same IP are temporarily blocked
 - Redirect targets are constrained to the configured application origin
+- Verification links include only a one-time token in query params and never
+  include an email address
 - Link verification requires either a matching binding secret or a matching IP
   plus user-agent pair
 - Used and expired links are rejected
-- Session and binding cookies are `HttpOnly` and `SameSite=Lax` by default
+- Session and binding cookies are `HttpOnly`, `Secure`, and `SameSite=Strict` by
+  default
 - RBAC permission data is stored as a minimal session snapshot, not as a policy
   source of truth
 

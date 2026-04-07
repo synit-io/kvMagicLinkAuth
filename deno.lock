@@ -1,9 +1,9 @@
 {
   "version": "5",
   "specifiers": {
-    "jsr:@std/assert@^1.0.15": "1.0.19",
+    "jsr:@std/assert@^1.0.19": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.12",
-    "npm:nodemailer@^7.0.3": "7.0.13"
+    "npm:nodemailer@^8.0.4": "8.0.4"
   },
   "jsr": {
     "@std/assert@1.0.19": {
@@ -17,14 +17,14 @@
     }
   },
   "npm": {
-    "nodemailer@7.0.13": {
-      "integrity": "sha512-PNDFSJdP+KFgdsG3ZzMXCgquO7I6McjY2vlqILjtJd0hy8wEvtugS9xKRF2NWlPNGxvLCXlTNIae4serI7dinw=="
+    "nodemailer@8.0.4": {
+      "integrity": "sha512-k+jf6N8PfQJ0Fe8ZhJlgqU5qJU44Lpvp2yvidH3vp1lPnVQMgi4yEEMPXg5eJS1gFIJTVq1NHBk7Ia9ARdSBdQ=="
     }
   },
   "workspace": {
     "dependencies": [
-      "jsr:@std/assert@^1.0.15",
-      "npm:nodemailer@^7.0.3"
+      "jsr:@std/assert@^1.0.19",
+      "npm:nodemailer@^8.0.4"
     ]
   }
 }

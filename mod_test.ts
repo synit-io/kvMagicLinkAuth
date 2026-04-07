@@ -109,6 +109,8 @@ Deno.test("issueMagicLink normalizes email and exposes debug URL in debug mode",
 
     assertEquals(result.sent, false);
     assert(result.debugUrl);
+    const debugQuery = new URL(result.debugUrl).searchParams;
+    assertEquals(debugQuery.has("email"), false);
 
     const token = tokenFromUrl(result.debugUrl);
     const verified = await auth.verifyMagicLink({
@@ -572,21 +574,28 @@ Deno.test("cookie helpers encode values, reject invalid names, and tolerate malf
   });
   assertMatch(sessionCookie, /^__Host-session=session%20value;/);
   assertMatch(sessionCookie, /HttpOnly/);
+  assertMatch(sessionCookie, /SameSite=Strict/);
   assertMatch(sessionCookie, /Secure/);
 
   const clearSessionCookie = buildSessionClearCookie({
     sessionCookieName: "__Host-session",
   });
+  assertMatch(clearSessionCookie, /Secure/);
+  assertMatch(clearSessionCookie, /SameSite=Strict/);
   assertMatch(clearSessionCookie, /Expires=Thu, 01 Jan 1970 00:00:00 GMT/);
 
   const bindingCookie = buildBindingSetCookie("bind=value", 60, {
     bindingCookieName: "__Host-ml-bind",
   });
   assertMatch(bindingCookie, /^__Host-ml-bind=bind%3Dvalue;/);
+  assertMatch(bindingCookie, /Secure/);
+  assertMatch(bindingCookie, /SameSite=Strict/);
 
   const clearBindingCookie = buildBindingClearCookie({
     bindingCookieName: "__Host-ml-bind",
   });
+  assertMatch(clearBindingCookie, /Secure/);
+  assertMatch(clearBindingCookie, /SameSite=Strict/);
   assertMatch(clearBindingCookie, /Path=\/api\/auth\/magic-link\/verify/);
 
   assertThrows(

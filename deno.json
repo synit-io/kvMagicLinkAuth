@@ -1,6 +1,6 @@
 {
   "name": "@synitio/kv-magic-link-auth",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Deno KV backed magic-link authentication for server-side Deno apps.",
   "license": "MIT",
   "exports": {
@@ -12,8 +12,8 @@
     "e2e": "deno run -A e2e/run.ts"
   },
   "imports": {
-    "@std/assert": "jsr:@std/assert@^1.0.15",
-    "nodemailer": "npm:nodemailer@^7.0.3"
+    "@std/assert": "jsr:@std/assert@^1.0.19",
+    "nodemailer": "npm:nodemailer@^8.0.4"
   },
   "fmt": {
     "semiColons": true,

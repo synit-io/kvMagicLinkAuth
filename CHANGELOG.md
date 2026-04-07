@@ -2,6 +2,15 @@
 
 All notable changes to this package are documented in this file.
 
+## 0.2.1 - 2026-04-07
+
+- Hardened cookie helpers to default to `Secure` and `SameSite=Strict` while
+  keeping `HttpOnly`.
+- Added tests that enforce strict cookie attributes and verify that magic-link
+  URLs do not include an `email` query parameter.
+- Updated security documentation to reflect strict cookie defaults and
+  query-parameter protections.
+
 ## 0.2.0 - 2026-03-29
 
 - Added optional RBAC support with config-driven role-to-permission mappings,
