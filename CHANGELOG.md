@@ -10,6 +10,8 @@ All notable changes to this package are documented in this file.
   URLs do not include an `email` query parameter.
 - Updated security documentation to reflect strict cookie defaults and
   query-parameter protections.
+- Fixed the E2E Docker image build by copying `authorization.ts`, which is
+  re-exported by `mod.ts` and required during `deno cache e2e/app.ts`.
 
 ## 0.2.0 - 2026-03-29
 

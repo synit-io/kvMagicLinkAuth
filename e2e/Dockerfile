@@ -1,9 +1,9 @@
-FROM denoland/deno:2.7.8
+FROM denoland/deno:2.7.12
 
 WORKDIR /app
 
 COPY deno.json deno.lock ./
-COPY mod.ts service.ts types.ts cookies.ts ./
+COPY mod.ts service.ts types.ts cookies.ts authorization.ts ./
 COPY e2e ./e2e
 
 RUN deno cache e2e/app.ts

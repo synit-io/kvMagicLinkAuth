@@ -24,6 +24,20 @@ deno task check
 containerized Deno test app, executes the E2E suite against the running stack,
 and removes the containers afterward.
 
+## GitHub automation
+
+The repository includes three automation files under `.github`:
+
+- `.github/workflows/ci-main.yml` runs `deno task check` and `deno task e2e` on
+  pull requests targeting `main`, on every push to `main` (including merges),
+  and on manual dispatch.
+- `.github/workflows/deno-deps-update.yml` runs every Monday at 05:00 UTC and
+  opens a PR with `deno outdated --update --latest` changes only after the
+  `deno task check` gate passes.
+- `.github/dependabot.yml` keeps GitHub Actions and Docker dependencies updated.
+  Dependabot does not currently provide a dedicated Deno/JSR ecosystem updater,
+  so Deno dependency updates are handled by the scheduled workflow above.
+
 ## Why tests need file permissions
 
 The test suite opens an isolated local Deno KV database file for each test case.

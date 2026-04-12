@@ -822,6 +822,9 @@ These helpers are pure. They do not read from KV.
 ## Development
 
 See [DEVELOPMENT.md](./DEVELOPMENT.md) for local checks and release workflow.
+GitHub Actions also runs `deno task check` plus `deno task e2e` on pull requests
+targeting `main` and pushes to `main`, and a scheduled workflow opens
+dependency-update PRs for Deno imports.
 
 ## E2E Testing
 

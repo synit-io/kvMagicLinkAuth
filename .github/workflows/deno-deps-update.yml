@@ -1,0 +1,52 @@
+name: Update Deno Dependencies
+
+on:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: deno-deps-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Update dependencies and open PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.7.11
+
+      - name: Update Deno dependencies
+        run: deno outdated --update --latest
+
+      - name: Validate updated dependencies
+        run: deno task check
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "chore: update Deno dependencies"
+          title: "chore: update Deno dependencies"
+          body: |
+            Automated dependency update created by GitHub Actions.
+
+            What this PR does:
+            - runs `deno outdated --update --latest`
+            - updates `deno.lock` when needed
+            - runs `deno task check` before opening the PR
+          branch: chore/deno-dependencies
+          delete-branch: true
+          labels: dependencies
+          signoff: false
