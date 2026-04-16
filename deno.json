@@ -13,7 +13,7 @@
   },
   "imports": {
     "@std/assert": "jsr:@std/assert@^1.0.19",
-    "nodemailer": "npm:nodemailer@^8.0.4"
+    "nodemailer": "npm:nodemailer@^8.0.5"
   },
   "fmt": {
     "semiColons": true,
