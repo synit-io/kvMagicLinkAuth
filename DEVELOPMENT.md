@@ -26,7 +26,7 @@ and removes the containers afterward.
 
 ## GitHub automation
 
-The repository includes three automation files under `.github`:
+The repository includes four automation files under `.github`:
 
 - `.github/workflows/ci-main.yml` runs `deno task check` and `deno task e2e` on
   pull requests targeting `main`, on every push to `main` (including merges),
@@ -34,6 +34,9 @@ The repository includes three automation files under `.github`:
 - `.github/workflows/deno-deps-update.yml` runs every Monday at 05:00 UTC and
   opens a PR with `deno outdated --update --latest` changes only after the
   `deno task check` gate passes.
+- `.github/workflows/cleanup-deno-dependency-branches.yml` runs when a
+  `chore/deno-dependencies*` pull request is merged into `main` and deletes
+  orphaned dependency-update branches that are no longer used by open PRs.
 - `.github/dependabot.yml` keeps GitHub Actions and Docker dependencies updated.
   Dependabot does not currently provide a dedicated Deno/JSR ecosystem updater,
   so Deno dependency updates are handled by the scheduled workflow above.

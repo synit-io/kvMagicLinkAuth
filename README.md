@@ -824,7 +824,8 @@ These helpers are pure. They do not read from KV.
 See [DEVELOPMENT.md](./DEVELOPMENT.md) for local checks and release workflow.
 GitHub Actions also runs `deno task check` plus `deno task e2e` on pull requests
 targeting `main` and pushes to `main`, and a scheduled workflow opens
-dependency-update PRs for Deno imports.
+dependency-update PRs for Deno imports. After merged `chore/deno-dependencies*`
+PRs, a cleanup workflow removes orphaned update branches.
 
 ## E2E Testing
 
