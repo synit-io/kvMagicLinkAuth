@@ -3,7 +3,7 @@
   "specifiers": {
     "jsr:@std/assert@^1.0.19": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.12",
-    "npm:nodemailer@^9.0.3": "9.0.3"
+    "npm:nodemailer@^9.0.5": "9.0.5"
   },
   "jsr": {
     "@std/assert@1.0.19": {
@@ -17,14 +17,14 @@
     }
   },
   "npm": {
-    "nodemailer@9.0.3": {
-      "integrity": "sha512-n+YP+NKwR5zRWa60k3GiQ6Q3B4KXCoAw40dAKeCtYn020iNN74aWK2liXIC3ZEATeGql7we3tE3t8QwhY0eskw=="
+    "nodemailer@9.0.5": {
+      "integrity": "sha512-wvjiKvjczmsN7U/8006JOdXubgBk2XFAbioDMbT+sM7cPs0QrhJTa6KBRX7P5REGGkDcLUz/EarWidb8G8C1jQ=="
     }
   },
   "workspace": {
     "dependencies": [
       "jsr:@std/assert@^1.0.19",
-      "npm:nodemailer@^9.0.3"
+      "npm:nodemailer@^9.0.5"
     ]
   }
 }
