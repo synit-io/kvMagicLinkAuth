@@ -1,4 +1,8 @@
-const composeFile = new URL("./docker-compose.yml", import.meta.url).pathname;
+import { fileURLToPath } from "node:url";
+
+const composeFile = fileURLToPath(
+  new URL("./docker-compose.yml", import.meta.url),
+);
 
 async function runCommand(args: string[], options: { check?: boolean } = {}) {
   const command = new Deno.Command("docker", {
@@ -18,6 +22,7 @@ async function waitForHealthy(url: string, timeoutMs = 60_000): Promise<void> {
   while (Date.now() - startedAt < timeoutMs) {
     try {
       const response = await fetch(url);
+      await response.body?.cancel();
       if (response.ok) return;
     } catch {
       // Keep polling until the service is ready.

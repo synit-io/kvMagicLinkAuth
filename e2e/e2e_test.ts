@@ -74,18 +74,20 @@ function extractVerificationUrl(message: MailpitMessage): string {
 Deno.test("e2e request and verify flow delivers mail through SMTP and marks super admin", async () => {
   const headers = {
     "content-type": "application/json",
-    "x-forwarded-for": "198.51.100.10",
     "user-agent": "e2e-suite/1.0",
   };
 
-  const requestResponse = await fetch(`${AUTH_BASE_URL}/auth/request`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      email: "admin@example.com",
-      redirectTo: "/admin/dashboard",
-    }),
-  });
+  const requestResponse = await fetch(
+    `${AUTH_BASE_URL}/api/auth/magic-link/request`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        email: "admin@example.com",
+        redirectTo: "/admin/dashboard",
+      }),
+    },
+  );
 
   assertEquals(requestResponse.status, 200);
   assertEquals(await requestResponse.json(), { sent: true });
@@ -118,44 +120,12 @@ Deno.test("e2e allowlist and failed-attempt throttling are enforced", async () =
     "user-agent": "e2e-suite/1.0",
   };
 
-  const outsideAllowlist = await fetch(`${AUTH_BASE_URL}/auth/request`, {
-    method: "POST",
-    headers: blockedHeaders,
-    body: JSON.stringify({
-      email: "intruder@blocked.example",
-    }),
-  });
-  assertEquals(outsideAllowlist.status, 401);
-  await outsideAllowlist.text();
-
-  for (let index = 0; index < 2; index += 1) {
-    const failed = await fetch(`${AUTH_BASE_URL}/auth/request`, {
-      method: "POST",
-      headers: blockedHeaders,
-      body: JSON.stringify({
-        email: `missing-${index}@example.com`,
-      }),
-    });
-    assertEquals(failed.status, 401);
-    await failed.text();
-  }
-
-  const throttled = await fetch(`${AUTH_BASE_URL}/auth/request`, {
-    method: "POST",
-    headers: blockedHeaders,
-    body: JSON.stringify({
-      email: "member@example.com",
-    }),
-  });
-  assertEquals(throttled.status, 401);
-  await throttled.text();
-
   const allowedHeaders = {
     "content-type": "application/json",
     "x-forwarded-for": "198.51.100.21",
     "user-agent": "e2e-suite/1.0",
   };
-  const allowed = await fetch(`${AUTH_BASE_URL}/auth/request`, {
+  const allowed = await fetch(`${AUTH_BASE_URL}/api/auth/magic-link/request`, {
     method: "POST",
     headers: allowedHeaders,
     body: JSON.stringify({
@@ -167,4 +137,50 @@ Deno.test("e2e allowlist and failed-attempt throttling are enforced", async () =
 
   const message = await findLatestMessage("special@outside.example");
   assertMatch(message.Text ?? "", /token=/);
+
+  const outsideAllowlist = await fetch(
+    `${AUTH_BASE_URL}/api/auth/magic-link/request`,
+    {
+      method: "POST",
+      headers: blockedHeaders,
+      body: JSON.stringify({
+        email: "intruder@blocked.example",
+      }),
+    },
+  );
+  assertEquals(outsideAllowlist.status, 401);
+  await outsideAllowlist.text();
+
+  for (let index = 0; index < 2; index += 1) {
+    const failed = await fetch(`${AUTH_BASE_URL}/api/auth/magic-link/request`, {
+      method: "POST",
+      headers: blockedHeaders,
+      body: JSON.stringify({
+        email: `missing-${index}@example.com`,
+      }),
+    });
+    assertEquals(failed.status, 401);
+    await failed.text();
+  }
+
+  const throttled = await fetch(
+    `${AUTH_BASE_URL}/api/auth/magic-link/request`,
+    {
+      method: "POST",
+      headers: blockedHeaders,
+      body: JSON.stringify({
+        email: "member@example.com",
+      }),
+    },
+  );
+  assertEquals(throttled.status, 401);
+  await throttled.text();
+
+  const spoofed = await fetch(`${AUTH_BASE_URL}/api/auth/magic-link/request`, {
+    method: "POST",
+    headers: { ...blockedHeaders, "x-forwarded-for": "198.51.100.99" },
+    body: JSON.stringify({ email: "member@example.com" }),
+  });
+  assertEquals(spoofed.status, 401);
+  await spoofed.text();
 });

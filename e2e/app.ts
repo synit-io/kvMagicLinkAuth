@@ -88,9 +88,12 @@ function json(data: unknown, init?: ResponseInit): Response {
   });
 }
 
-function requestContext(request: Request) {
+function requestContext(
+  request: Request,
+  info: Deno.ServeHandlerInfo<Deno.NetAddr>,
+) {
   return {
-    requestIp: request.headers.get("x-forwarded-for"),
+    requestIp: info.remoteAddr.hostname,
     userAgent: request.headers.get("user-agent"),
   };
 }
@@ -101,7 +104,7 @@ Deno.addSignalListener("SIGTERM", async () => {
   Deno.exit(0);
 });
 
-Deno.serve({ port: PORT }, async (request) => {
+Deno.serve({ port: PORT }, async (request, info) => {
   const url = new URL(request.url);
 
   if (url.pathname === "/health") {
@@ -109,8 +112,7 @@ Deno.serve({ port: PORT }, async (request) => {
   }
 
   if (
-    (url.pathname === "/auth/request" ||
-      url.pathname === "/api/auth/magic-link/request") &&
+    url.pathname === "/api/auth/magic-link/request" &&
     request.method === "POST"
   ) {
     const body = await request.json().catch(() => null) as
@@ -119,19 +121,18 @@ Deno.serve({ port: PORT }, async (request) => {
     const issued = await auth.issueMagicLink({
       email: body?.email ?? "",
       redirectTo: body?.redirectTo,
-      ...requestContext(request),
+      ...requestContext(request, info),
     });
     return json(issued, { status: issued.sent ? 200 : 401 });
   }
 
   if (
-    (url.pathname === "/auth/verify" ||
-      url.pathname === "/api/auth/magic-link/verify") &&
+    url.pathname === "/api/auth/magic-link/verify" &&
     request.method === "GET"
   ) {
     const verified = await auth.verifyMagicLink({
       token: url.searchParams.get("token") ?? "",
-      ...requestContext(request),
+      ...requestContext(request, info),
     });
     if (!verified) {
       return json({ ok: false }, { status: 401 });
