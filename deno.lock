@@ -3,7 +3,8 @@
   "specifiers": {
     "jsr:@std/assert@^1.0.19": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.12",
-    "npm:nodemailer@10": "10.0.0"
+    "npm:nodemailer@10": "10.0.0",
+    "npm:playwright@^1.63.0": "1.63.0"
   },
   "jsr": {
     "@std/assert@1.0.19": {
@@ -19,12 +20,24 @@
   "npm": {
     "nodemailer@10.0.0": {
       "integrity": "sha512-wdv+hXBg0iIPIOf108FaZyTxqjQpCvQeAJt9pHHTooPy/y3vQtI9eiImM9AIVKR3e/0FeMA1oueNfBjFJcaK+Q=="
+    },
+    "playwright-core@1.63.0": {
+      "integrity": "sha512-rYCsBF/M5HjUch52bbtVONEFjv6Xu8sm8h72dNlR5bzIE1fvC/bxgspzkjSfU+MweEMmPM8KJebG6nnyxo5mCg==",
+      "bin": true
+    },
+    "playwright@1.63.0": {
+      "integrity": "sha512-+7ziBLidS4NaNCdt57SUDT+wYmmd5fmiQejUic/kb+YsYSCPyOOE9sebzMjNmQrsnNpDJqd4WHvV/8lfKfUDUg==",
+      "dependencies": [
+        "playwright-core"
+      ],
+      "bin": true
     }
   },
   "workspace": {
     "dependencies": [
       "jsr:@std/assert@^1.0.19",
-      "npm:nodemailer@10"
+      "npm:nodemailer@10",
+      "npm:playwright@^1.63.0"
     ]
   }
 }

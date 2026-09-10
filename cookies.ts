@@ -6,35 +6,57 @@ export interface MagicLinkCookieConfig {
   bindingCookieName?: string;
   /** Adds the `Secure` attribute. Enabled by default; set to `false` only for local HTTP development. */
   secure?: boolean;
+  /** Same-site policy. Defaults to `"Lax"` so emailed links can carry binding and session cookies. */
+  sameSite?: "Lax" | "Strict";
   /** Session cookie lifetime in days. Defaults to `30`. */
   sessionAbsoluteTtlDays?: number;
 }
 
 const COOKIE_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 
-function assertCookieName(name: string, label: string): string {
+function assertCookieName(
+  name: string,
+  label: string,
+  secure: boolean,
+): string {
   if (!COOKIE_NAME_PATTERN.test(name)) {
     throw new Error(`Invalid ${label} cookie name.`);
+  }
+  if (/^__(?:Host|Secure)-/i.test(name) && !secure) {
+    throw new Error(
+      "Cookie names starting with __Host- or __Secure- require secure: true.",
+    );
   }
   return name;
 }
 
-function cookieBase(maxAgeSeconds: number, secure: boolean): string {
+function cookieBase(
+  maxAgeSeconds: number,
+  secure: boolean,
+  sameSite: "Lax" | "Strict",
+): string {
   const parts = [
     "Path=/",
     "HttpOnly",
-    "SameSite=Strict",
+    `SameSite=${sameSite}`,
     `Max-Age=${maxAgeSeconds}`,
   ];
   if (secure) parts.push("Secure");
   return parts.join("; ");
 }
 
-function bindingCookieBase(maxAgeSeconds: number, secure: boolean): string {
+function bindingCookieBase(
+  maxAgeSeconds: number,
+  secure: boolean,
+  sameSite: "Lax" | "Strict",
+  cookieName: string,
+): string {
   const parts = [
-    "Path=/api/auth/magic-link/verify",
+    /^__Host-/i.test(cookieName)
+      ? "Path=/"
+      : "Path=/api/auth/magic-link/verify",
     "HttpOnly",
-    "SameSite=Strict",
+    `SameSite=${sameSite}`,
     `Max-Age=${maxAgeSeconds}`,
   ];
   if (secure) parts.push("Secure");
@@ -66,10 +88,15 @@ export function buildSessionSetCookie(
   const cookieName = assertCookieName(
     config.sessionCookieName ?? "session",
     "session",
+    config.secure ?? true,
   );
   const ttlDays = config.sessionAbsoluteTtlDays ?? 30;
   return `${cookieName}=${encodeURIComponent(sessionId)}; ${
-    cookieBase(ttlDays * 24 * 60 * 60, config.secure ?? true)
+    cookieBase(
+      ttlDays * 24 * 60 * 60,
+      config.secure ?? true,
+      config.sameSite ?? "Lax",
+    )
   }`;
 }
 
@@ -80,9 +107,10 @@ export function buildSessionClearCookie(
   const cookieName = assertCookieName(
     config.sessionCookieName ?? "session",
     "session",
+    config.secure ?? true,
   );
   return `${cookieName}=; ${
-    cookieBase(0, config.secure ?? true)
+    cookieBase(0, config.secure ?? true, config.sameSite ?? "Lax")
   }; Expires=Thu, 01 Jan 1970 00:00:00 GMT`;
 }
 
@@ -95,9 +123,15 @@ export function buildBindingSetCookie(
   const cookieName = assertCookieName(
     config.bindingCookieName ?? "ml_bind",
     "binding",
+    config.secure ?? true,
   );
   return `${cookieName}=${encodeURIComponent(value)}; ${
-    bindingCookieBase(maxAgeSeconds, config.secure ?? true)
+    bindingCookieBase(
+      maxAgeSeconds,
+      config.secure ?? true,
+      config.sameSite ?? "Lax",
+      cookieName,
+    )
   }`;
 }
 
@@ -108,8 +142,14 @@ export function buildBindingClearCookie(
   const cookieName = assertCookieName(
     config.bindingCookieName ?? "ml_bind",
     "binding",
+    config.secure ?? true,
   );
   return `${cookieName}=; ${
-    bindingCookieBase(0, config.secure ?? true)
+    bindingCookieBase(
+      0,
+      config.secure ?? true,
+      config.sameSite ?? "Lax",
+      cookieName,
+    )
   }; Expires=Thu, 01 Jan 1970 00:00:00 GMT`;
 }

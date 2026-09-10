@@ -574,14 +574,14 @@ Deno.test("cookie helpers encode values, reject invalid names, and tolerate malf
   });
   assertMatch(sessionCookie, /^__Host-session=session%20value;/);
   assertMatch(sessionCookie, /HttpOnly/);
-  assertMatch(sessionCookie, /SameSite=Strict/);
+  assertMatch(sessionCookie, /SameSite=Lax/);
   assertMatch(sessionCookie, /Secure/);
 
   const clearSessionCookie = buildSessionClearCookie({
     sessionCookieName: "__Host-session",
   });
   assertMatch(clearSessionCookie, /Secure/);
-  assertMatch(clearSessionCookie, /SameSite=Strict/);
+  assertMatch(clearSessionCookie, /SameSite=Lax/);
   assertMatch(clearSessionCookie, /Expires=Thu, 01 Jan 1970 00:00:00 GMT/);
 
   const bindingCookie = buildBindingSetCookie("bind=value", 60, {
@@ -589,14 +589,14 @@ Deno.test("cookie helpers encode values, reject invalid names, and tolerate malf
   });
   assertMatch(bindingCookie, /^__Host-ml-bind=bind%3Dvalue;/);
   assertMatch(bindingCookie, /Secure/);
-  assertMatch(bindingCookie, /SameSite=Strict/);
+  assertMatch(bindingCookie, /SameSite=Lax/);
 
   const clearBindingCookie = buildBindingClearCookie({
     bindingCookieName: "__Host-ml-bind",
   });
   assertMatch(clearBindingCookie, /Secure/);
-  assertMatch(clearBindingCookie, /SameSite=Strict/);
-  assertMatch(clearBindingCookie, /Path=\/api\/auth\/magic-link\/verify/);
+  assertMatch(clearBindingCookie, /SameSite=Lax/);
+  assertMatch(clearBindingCookie, /Path=\/;/);
 
   assertThrows(
     () => {
