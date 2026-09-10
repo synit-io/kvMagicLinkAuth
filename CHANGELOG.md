@@ -2,6 +2,28 @@
 
 All notable changes to this package are documented in this file.
 
+## 0.3.0 - 2026-09-10
+
+- Bound newly issued magic links to the user's email and credential version.
+  Verification also enforces the current allowlist. Outstanding links issued by
+  older versions cannot authenticate after upgrading; request a new link.
+- Prevented same-origin URLs with network-path pathnames from becoming external
+  redirects, including redirect values in existing KV records.
+- Fixed failed-login rate limiting under concurrent requests by retrying checked
+  atomic writes and preserving established blocks.
+- Changed session and binding cookie defaults to `SameSite=Lax` for emailed
+  login navigation. Applications can explicitly configure `sameSite: "Strict"`
+  when using a same-site confirmation flow.
+- Corrected `__Host-` binding cookies to use `Path=/` and reject insecure
+  configurations for `__Host-` and `__Secure-` cookie names.
+- Fixed documentation examples to use matching verification routes, retain
+  response cookies, deliver email, and derive client IPs from trusted transport
+  information. Added upgrade and public-endpoint guidance.
+- Restricted E2E service ports to loopback and fixed runner paths containing
+  spaces or Unicode. E2E tests now reject spoofed forwarding headers.
+- Added security, browser-cookie, and executable documentation regression tests
+  to the development and CI checks.
+
 ## 0.2.1 - 2026-04-07
 
 - Hardened cookie helpers to default to `Secure` and `SameSite=Strict` while
