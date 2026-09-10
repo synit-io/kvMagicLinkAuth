@@ -47,7 +47,17 @@ jobs:
       - name: Setup Deno
         uses: denoland/setup-deno@v2
         with:
-          deno-version: 2.7.11
+          deno-version: 2.9.6
 
-      - name: Run e2e suite
-        run: deno task e2e
+      - name: Run e2e suite from a path containing spaces and Unicode
+        run: |
+          e2e_directory="$RUNNER_TEMP/auth review ü"
+          mkdir -p "$e2e_directory"
+          cp -R "$GITHUB_WORKSPACE/." "$e2e_directory/"
+          deno task --cwd "$e2e_directory" e2e
+
+      - name: Install Chromium
+        run: deno task browser:install --with-deps
+
+      - name: Run browser login tests
+        run: deno task test:browser

@@ -67,6 +67,18 @@ This is the shortest useful setup. It shows the full auth lifecycle:
 - set a session cookie
 - load the session later
 
+Each handler below accepts the transport context supplied by `Deno.serve`.
+Register it with `Deno.serve(handleRequest)` after providing your application
+lookups and mail adapter. `info.remoteAddr.hostname` is the connected peer's IP;
+`User-Agent` is read from the request. For a different framework, pass an
+address obtained from its trusted connection metadata.
+
+Do not use a client-supplied `X-Forwarded-For` value as `requestIp`. Behind a
+reverse proxy, configure an explicit trusted-proxy boundary that overwrites or
+validates forwarding headers before passing the resolved client IP. The direct
+peer address otherwise identifies the proxy, so clients share its rate-limit
+bucket. Use the same trusted address resolution for issuance and verification.
+
 ```ts
 import {
   buildSessionSetCookie,
@@ -107,7 +119,10 @@ const auth = new DenoKvMagicLinkAuth(
   },
 );
 
-export async function handleRequest(request: Request): Promise<Response> {
+export async function handleRequest(
+  request: Request,
+  info: Deno.ServeHandlerInfo<Deno.NetAddr>,
+): Promise<Response> {
   const url = new URL(request.url);
 
   if (url.pathname === "/auth/request" && request.method === "POST") {
@@ -115,7 +130,7 @@ export async function handleRequest(request: Request): Promise<Response> {
     const issued = await auth.issueMagicLink({
       email: "admin@example.local",
       redirectTo: "/admin/dashboard",
-      requestIp: request.headers.get("x-forwarded-for"),
+      requestIp: info.remoteAddr.hostname,
       userAgent: request.headers.get("user-agent"),
     });
 
@@ -126,11 +141,11 @@ export async function handleRequest(request: Request): Promise<Response> {
     });
   }
 
-  if (url.pathname === "/auth/verify") {
+  if (url.pathname === "/api/auth/magic-link/verify") {
     // `verifyMagicLink()` consumes the one-time token and writes one session.
     const verified = await auth.verifyMagicLink({
       token: url.searchParams.get("token") ?? "",
-      requestIp: request.headers.get("x-forwarded-for"),
+      requestIp: info.remoteAddr.hostname,
       userAgent: request.headers.get("user-agent"),
     });
 
@@ -147,11 +162,11 @@ export async function handleRequest(request: Request): Promise<Response> {
       }),
     );
 
-    return Response.redirect(
-      new URL(verified.redirectTo, "https://app.example.local"),
-      302,
-      { headers },
+    headers.set(
+      "location",
+      new URL(verified.redirectTo, "https://app.example.local").href,
     );
+    return new Response(null, { status: 302, headers });
   }
 
   if (url.pathname === "/me") {
@@ -219,7 +234,14 @@ The package is tuned to avoid unnecessary KV traffic:
 ## Basic Auth Example
 
 This example shows a production-oriented setup with allowlists and real mail
-delivery.
+delivery. Return the same `202` response whether an account exists, is blocked,
+or receives mail; keep the internal `sent` result out of public responses. The
+example addresses and mail endpoint are placeholders for your application.
+
+Apply ingress limits per trusted client IP and per recipient before issuing
+links. The package's failed-attempt limiter does not limit successful email
+issuance, so separate delivery quotas are required to prevent mailbox flooding
+and excessive mail or storage costs.
 
 ```ts
 import {
@@ -276,24 +298,27 @@ const auth = new DenoKvMagicLinkAuth(
   },
 );
 
-export async function handleRequest(request: Request): Promise<Response> {
+export async function handleRequest(
+  request: Request,
+  info: Deno.ServeHandlerInfo<Deno.NetAddr>,
+): Promise<Response> {
   const url = new URL(request.url);
 
   if (url.pathname === "/auth/request" && request.method === "POST") {
-    const issued = await auth.issueMagicLink({
+    await auth.issueMagicLink({
       email: "admin@example.local",
       redirectTo: "/admin/dashboard",
-      requestIp: request.headers.get("x-forwarded-for"),
+      requestIp: info.remoteAddr.hostname,
       userAgent: request.headers.get("user-agent"),
     });
 
-    return Response.json({ sent: issued.sent });
+    return Response.json({ accepted: true }, { status: 202 });
   }
 
-  if (url.pathname === "/auth/verify") {
+  if (url.pathname === "/api/auth/magic-link/verify") {
     const verified = await auth.verifyMagicLink({
       token: url.searchParams.get("token") ?? "",
-      requestIp: request.headers.get("x-forwarded-for"),
+      requestIp: info.remoteAddr.hostname,
       userAgent: request.headers.get("user-agent"),
     });
 
@@ -310,14 +335,18 @@ export async function handleRequest(request: Request): Promise<Response> {
       }),
     );
 
-    return Response.redirect(
-      new URL(verified.redirectTo, "https://console.example.local"),
-      302,
-      { headers },
+    headers.set(
+      "location",
+      new URL(verified.redirectTo, "https://console.example.local").href,
     );
+    return new Response(null, { status: 302, headers });
   }
 
-  if (url.pathname === "/auth/logout") {
+  if (url.pathname === "/auth/logout" && request.method === "POST") {
+    if (request.headers.get("origin") !== "https://console.example.local") {
+      return new Response("invalid origin", { status: 403 });
+    }
+
     const sessionId = getCookie(request.headers, "__Host-session");
     if (sessionId) {
       await auth.revokeSession(sessionId);
@@ -359,8 +388,9 @@ declare function lookupUserById(id: string): Promise<
 
 ## Advanced Auth Example
 
-This variant adds binding-secret verification. It is useful when you want the
-verification step to require a cookie set on the device that requested the link.
+This variant adds binding-secret verification. A cookie set on the device that
+requested the link can complete verification even if its IP changes. Matching IP
+and user-agent values remain an alternative; the cookie is not mandatory.
 
 ```ts
 import {
@@ -385,20 +415,31 @@ const auth = new DenoKvMagicLinkAuth(
     kv,
     findUserByEmail: lookupUserByEmail,
     findUserById: lookupUserById,
+    sendMail: async ({ to, subject, text, html }) => {
+      const response = await fetch("https://mailer.example.local/send", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ to, subject, text, html }),
+      });
+      return { ok: response.ok };
+    },
   },
 );
 
-export async function handleRequest(request: Request): Promise<Response> {
+export async function handleRequest(
+  request: Request,
+  info: Deno.ServeHandlerInfo<Deno.NetAddr>,
+): Promise<Response> {
   const url = new URL(request.url);
 
   if (url.pathname === "/auth/request" && request.method === "POST") {
     // This cookie never stores the login token. It stores a separate secret
     // that is hashed and matched during verification.
     const bindingSecret = crypto.randomUUID();
-    const issued = await auth.issueMagicLink({
+    await auth.issueMagicLink({
       email: "admin@example.local",
       redirectTo: "/admin/dashboard",
-      requestIp: request.headers.get("x-forwarded-for"),
+      requestIp: info.remoteAddr.hostname,
       userAgent: request.headers.get("user-agent"),
       bindingSecret,
     });
@@ -412,14 +453,17 @@ export async function handleRequest(request: Request): Promise<Response> {
       }),
     );
 
-    return new Response(JSON.stringify({ sent: issued.sent }), { headers });
+    return new Response(JSON.stringify({ accepted: true }), {
+      status: 202,
+      headers,
+    });
   }
 
-  if (url.pathname === "/auth/verify") {
+  if (url.pathname === "/api/auth/magic-link/verify") {
     const bindingSecret = getCookie(request.headers, "__Host-ml-bind");
     const verified = await auth.verifyMagicLink({
       token: url.searchParams.get("token") ?? "",
-      requestIp: request.headers.get("x-forwarded-for"),
+      requestIp: info.remoteAddr.hostname,
       userAgent: request.headers.get("user-agent"),
       bindingSecret,
     });
@@ -444,11 +488,11 @@ export async function handleRequest(request: Request): Promise<Response> {
       }),
     );
 
-    return Response.redirect(
-      new URL(verified.redirectTo, "https://console.example.local"),
-      302,
-      { headers },
+    headers.set(
+      "location",
+      new URL(verified.redirectTo, "https://console.example.local").href,
     );
+    return new Response(null, { status: 302, headers });
   }
 
   return new Response("not found", { status: 404 });
@@ -535,13 +579,16 @@ const auth = new DenoKvMagicLinkAuth(
   },
 );
 
-export async function handleRequest(request: Request): Promise<Response> {
+export async function handleRequest(
+  request: Request,
+  info: Deno.ServeHandlerInfo<Deno.NetAddr>,
+): Promise<Response> {
   const url = new URL(request.url);
 
-  if (url.pathname === "/auth/verify") {
+  if (url.pathname === "/api/auth/magic-link/verify") {
     const verified = await auth.verifyMagicLink({
       token: url.searchParams.get("token") ?? "",
-      requestIp: request.headers.get("x-forwarded-for"),
+      requestIp: info.remoteAddr.hostname,
       userAgent: request.headers.get("user-agent"),
     });
 
@@ -549,18 +596,19 @@ export async function handleRequest(request: Request): Promise<Response> {
       return new Response("invalid or expired link", { status: 401 });
     }
 
-    return Response.redirect(
-      new URL(verified.redirectTo, "https://console.example.local"),
-      302,
-      {
-        headers: {
-          "set-cookie": buildSessionSetCookie(verified.sessionId, {
-            secure: true,
-            sessionCookieName: "__Host-session",
-          }),
-        },
+    return new Response(null, {
+      status: 302,
+      headers: {
+        location: new URL(
+          verified.redirectTo,
+          "https://console.example.local",
+        ).href,
+        "set-cookie": buildSessionSetCookie(verified.sessionId, {
+          secure: true,
+          sessionCookieName: "__Host-session",
+        }),
       },
-    );
+    });
   }
 
   if (url.pathname === "/admin/users") {
@@ -653,16 +701,27 @@ const auth = new DenoKvMagicLinkAuth(
     kv,
     findUserByEmail: lookupUserByEmail,
     findUserById: lookupUserById,
+    sendMail: async ({ to, subject, text, html }) => {
+      const response = await fetch("https://mailer.example.local/send", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ to, subject, text, html }),
+      });
+      return { ok: response.ok };
+    },
   },
 );
 
-export async function handleRequest(request: Request): Promise<Response> {
+export async function handleRequest(
+  request: Request,
+  info: Deno.ServeHandlerInfo<Deno.NetAddr>,
+): Promise<Response> {
   const url = new URL(request.url);
 
-  if (url.pathname === "/auth/verify") {
+  if (url.pathname === "/api/auth/magic-link/verify") {
     const verified = await auth.verifyMagicLink({
       token: url.searchParams.get("token") ?? "",
-      requestIp: request.headers.get("x-forwarded-for"),
+      requestIp: info.remoteAddr.hostname,
       userAgent: request.headers.get("user-agent"),
     });
 
@@ -670,18 +729,19 @@ export async function handleRequest(request: Request): Promise<Response> {
       return new Response("invalid or expired link", { status: 401 });
     }
 
-    return Response.redirect(
-      new URL(verified.redirectTo, "https://console.example.local"),
-      302,
-      {
-        headers: {
-          "set-cookie": buildSessionSetCookie(verified.sessionId, {
-            secure: true,
-            sessionCookieName: "__Host-session",
-          }),
-        },
+    return new Response(null, {
+      status: 302,
+      headers: {
+        location: new URL(
+          verified.redirectTo,
+          "https://console.example.local",
+        ).href,
+        "set-cookie": buildSessionSetCookie(verified.sessionId, {
+          secure: true,
+          sessionCookieName: "__Host-session",
+        }),
       },
-    );
+    });
   }
 
   const sessionId = getCookie(request.headers, "__Host-session");
@@ -804,11 +864,39 @@ These helpers are pure. They do not read from KV.
   include an email address
 - Link verification requires either a matching binding secret or a matching IP
   plus user-agent pair
-- Used and expired links are rejected
-- Session and binding cookies are `HttpOnly`, `Secure`, and `SameSite=Strict` by
-  default
+- Used and expired links are rejected; verification rechecks the current email
+  allowlist and the user's email and `authVersion` from issuance
+- Session and binding cookies are `HttpOnly`, `Secure`, and `SameSite=Lax` by
+  default, allowing top-level navigation from an email link
+- `requestIp` must come from transport metadata or an explicitly trusted proxy,
+  not an unchecked forwarding header
 - RBAC permission data is stored as a minimal session snapshot, not as a policy
   source of truth
+
+### Upgrading existing integrations
+
+New magic links are bound to the user's email and `authVersion` at issuance.
+Links issued before this change lack that version snapshot and are rejected; ask
+users to request a fresh link after deploying the upgrade. Increment
+`authVersion` when changing credentials or revoking outstanding links. Existing
+sessions still require the application's version check shown in the Advanced
+RBAC Example.
+
+Cookie helpers now default to `SameSite=Lax` so browsers can send the binding
+cookie when following a top-level email link. `__Host-` cookies use `Path=/` and
+require `Secure`. Keep state-changing routes protected with POST plus origin or
+CSRF validation; SameSite alone is not a complete CSRF defense. Clear any legacy
+`ml_bind` cookie at `Path=/api/auth/magic-link/verify` when switching a deployed
+binding cookie to `Path=/`.
+
+Set `sameSite: "Strict"` explicitly on cookie helpers only when your login flow
+provides an intermediate page that completes verification through a subsequent
+same-site request. Use the same cookie configuration when setting and clearing
+cookies.
+
+Update verification handlers to `/api/auth/magic-link/verify`, and return a
+response containing both `Location` and `Set-Cookie`. The examples above show
+this response and the trusted transport context required for IP checks.
 
 ## Low-KV Deployment Guidance
 

@@ -7,8 +7,9 @@
     ".": "./mod.ts"
   },
   "tasks": {
-    "check": "deno fmt --check && deno lint && deno task test",
+    "check": "deno fmt --check && deno lint && deno task test && deno task test:docs",
     "test": "deno test --unstable-kv --allow-read --allow-write mod_test.ts security_test.ts cookies_test.ts",
+    "test:docs": "deno test --unstable-kv --allow-read --allow-write --allow-run=deno readme_test.ts",
     "e2e": "deno run --allow-run=docker,deno --allow-net=127.0.0.1 e2e/run.ts",
     "browser:install": "deno run -A playwright install --only-shell chromium",
     "test:browser": "deno test --unstable-kv -A e2e/browser_test.ts"
@@ -29,7 +30,8 @@
       "e2e",
       "mod_test.ts",
       "security_test.ts",
-      "cookies_test.ts"
+      "cookies_test.ts",
+      "readme_test.ts"
     ]
   }
 }
