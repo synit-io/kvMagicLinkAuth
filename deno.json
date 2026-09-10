@@ -7,8 +7,8 @@
     ".": "./mod.ts"
   },
   "tasks": {
-    "check": "deno fmt --check && deno lint && deno test --unstable-kv --allow-read --allow-write mod_test.ts",
-    "test": "deno test --unstable-kv --allow-read --allow-write mod_test.ts",
+    "check": "deno fmt --check && deno lint && deno task test",
+    "test": "deno test --unstable-kv --allow-read --allow-write mod_test.ts security_test.ts",
     "e2e": "deno run -A e2e/run.ts"
   },
   "imports": {
@@ -24,7 +24,8 @@
       ".gitignore",
       "CHANGELOG.md",
       "e2e",
-      "mod_test.ts"
+      "mod_test.ts",
+      "security_test.ts"
     ]
   }
 }

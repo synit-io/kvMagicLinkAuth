@@ -4,7 +4,7 @@ export interface MagicLinkAuthUser {
   id: string;
   /** User email address used for login and session display. */
   email: string;
-  /** Version used by applications to invalidate older sessions when credentials change. */
+  /** Credential version recorded in links and sessions; increment when credentials change. */
   authVersion: number;
   /** Whether the user is currently allowed to authenticate. */
   active: boolean;
@@ -33,6 +33,8 @@ export interface SessionAuthorizationSnapshot {
 export interface MagicLinkRecord {
   userId: string;
   emailNormalized: string;
+  /** Credential version at issuance. Legacy records without this field cannot authenticate. */
+  authVersion: number;
   createdAt: string;
   expiresAt: string;
   usedAt: string | null;
@@ -68,6 +70,7 @@ export interface FailedAuthAttemptRecord {
 export interface MagicLinkIssueInput {
   email: string;
   redirectTo?: string;
+  /** Trusted client IP from the transport or a validated proxy, never a raw client header. */
   requestIp?: string | null;
   userAgent?: string | null;
   bindingSecret?: string | null;
@@ -76,6 +79,7 @@ export interface MagicLinkIssueInput {
 /** Input payload for verifying a magic link token. */
 export interface MagicLinkVerifyInput {
   token: string;
+  /** Trusted client IP from the transport or a validated proxy, never a raw client header. */
   requestIp?: string | null;
   userAgent?: string | null;
   bindingSecret?: string | null;

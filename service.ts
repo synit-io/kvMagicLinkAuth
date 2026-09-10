@@ -120,6 +120,9 @@ function sanitizeRedirectTo(
     const appUrl = new URL(appBaseUrl);
     const resolved = new URL(trimmed, appUrl);
     if (resolved.origin !== appUrl.origin) return fallback;
+    // A same-origin URL can have a network-path pathname. Returning that
+    // pathname would change the origin when a caller resolves it again.
+    if (resolved.pathname.startsWith("//")) return fallback;
     return `${resolved.pathname}${resolved.search}${resolved.hash}`;
   } catch {
     return fallback;
@@ -358,39 +361,39 @@ export class DenoKvMagicLinkAuth {
   ): Promise<void> {
     if (!requestIp) return;
 
-    const nowMs = now.getTime();
+    const key = this.key("failed_auth_attempts", requestIp);
     const windowMs = this.config.failedAuthRateLimitWindowMinutes * 60 * 1000;
     const blockMs = this.config.failedAuthRateLimitBlockMinutes * 60 * 1000;
-    const count = entry?.value &&
-        Date.parse(entry.value.lastAttemptAt) > nowMs - windowMs
-      ? entry.value.count + 1
-      : 1;
-    const blockedUntil = count >= this.config.failedAuthRateLimitMaxAttempts
-      ? new Date(nowMs + blockMs).toISOString()
-      : null;
-    const record: FailedAuthAttemptRecord = {
-      count,
-      lastAttemptAt: now.toISOString(),
-      blockedUntil,
-    };
+    let current = entry;
+    let attemptTime = now;
 
-    if (entry?.value) {
+    while (true) {
+      // A delayed failure must not overwrite a block established by another
+      // request. Recompute from fresh state after every conflicting write.
+      if (this.isBlockedAttempt(current, attemptTime)) return;
+      const nowMs = attemptTime.getTime();
+      const count = current?.value &&
+          Date.parse(current.value.lastAttemptAt) > nowMs - windowMs
+        ? current.value.count + 1
+        : 1;
+      const record: FailedAuthAttemptRecord = {
+        count,
+        lastAttemptAt: attemptTime.toISOString(),
+        blockedUntil: count >= this.config.failedAuthRateLimitMaxAttempts
+          ? new Date(nowMs + blockMs).toISOString()
+          : null,
+      };
+
       const tx = await this.deps.kv.atomic()
-        .check({ key: entry.key, versionstamp: entry.versionstamp })
-        .set(this.key("failed_auth_attempts", requestIp), record, {
+        .check({ key, versionstamp: current?.versionstamp ?? null })
+        .set(key, record, {
           expireIn: Math.max(windowMs, blockMs),
         })
         .commit();
       if (tx.ok) return;
+      current = await this.getFailedAttemptState(requestIp);
+      attemptTime = this.now();
     }
-
-    await this.deps.kv.set(
-      this.key("failed_auth_attempts", requestIp),
-      record,
-      {
-        expireIn: Math.max(windowMs, blockMs),
-      },
-    );
   }
 
   /** Issues a one-time magic link for an active user and stores its verification record in Deno KV. */
@@ -439,6 +442,7 @@ export class DenoKvMagicLinkAuth {
     const record: MagicLinkRecord = {
       userId: user.id,
       emailNormalized: normalizeEmail(user.email),
+      authVersion: user.authVersion,
       createdAt: nowIso,
       expiresAt: new Date(now.getTime() + ttlMs).toISOString(),
       usedAt: null,
@@ -541,6 +545,12 @@ export class DenoKvMagicLinkAuth {
 
     const user = await this.deps.findUserById(linkEntry.value.userId);
     if (!user || !user.active) return null;
+    if (
+      typeof linkEntry.value.authVersion !== "number" ||
+      linkEntry.value.authVersion !== user.authVersion ||
+      linkEntry.value.emailNormalized !== normalizeEmail(user.email) ||
+      !this.isEmailAllowed(normalizeEmail(user.email))
+    ) return null;
     const resolvedUser = this.resolveUser(user);
 
     // The session stores only a minimal authorization snapshot so request-time
@@ -583,7 +593,10 @@ export class DenoKvMagicLinkAuth {
 
     return {
       sessionId,
-      redirectTo: linkEntry.value.redirectTo || "/admin/dashboard",
+      redirectTo: sanitizeRedirectTo(
+        linkEntry.value.redirectTo,
+        this.config.appBaseUrl,
+      ),
       user: resolvedUser,
     };
   }

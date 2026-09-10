@@ -607,8 +607,8 @@ Deno.test("cookie helpers encode values, reject invalid names, and tolerate malf
   );
 });
 
-Deno.test("constructor validates config", () => {
-  assertRejects(
+Deno.test("constructor validates config", async () => {
+  await assertRejects(
     () =>
       withTestKv((kv) => {
         new DenoKvMagicLinkAuth(
@@ -623,7 +623,7 @@ Deno.test("constructor validates config", () => {
     "appBaseUrl must use http or https.",
   );
 
-  assertRejects(
+  await assertRejects(
     () =>
       withTestKv((kv) => {
         new DenoKvMagicLinkAuth(
@@ -639,7 +639,7 @@ Deno.test("constructor validates config", () => {
     'allowedEmailPatterns entries must be exact email addresses or "*@domain.tld".',
   );
 
-  assertRejects(
+  await assertRejects(
     () =>
       withTestKv((kv) => {
         new DenoKvMagicLinkAuth(
@@ -658,7 +658,7 @@ Deno.test("constructor validates config", () => {
     "rbac.roles must define at least one role when RBAC is enabled.",
   );
 
-  assertRejects(
+  await assertRejects(
     () =>
       withTestKv((kv) => {
         new DenoKvMagicLinkAuth(
