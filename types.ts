@@ -53,10 +53,10 @@ export interface SessionRecord {
   authVersion: number;
   authorization?: SessionAuthorizationSnapshot;
   createdAt: string;
-  lastSeenAt: string;
+  /** Fixed deadline from issuance. It does not move when the session is read. */
   idleExpiresAt: string;
+  /** Fixed deadline from issuance. The effective lifetime is the earlier of the two deadlines. */
   absoluteExpiresAt: string;
-  revokedAt: string | null;
 }
 
 /** Stored failed-auth state for one originating IP address. */
@@ -87,9 +87,36 @@ export interface MagicLinkVerifyInput {
 
 /** Result returned after attempting to issue a magic link. */
 export interface MagicLinkIssueResult {
+  /** A usable link was stored and its raw token is available to mail or `debugUrl`. */
+  issued: boolean;
+  /** Mail delivery succeeded. Debug-only issuance leaves this false. */
   sent: boolean;
   debugUrl?: string;
+  /**
+   * Application-facing failure detail, such as `rate_limited` or a mailer error.
+   * Do not copy this value into a public HTTP response.
+   */
+  error?: string;
 }
+
+/** Message content produced for a magic-link email. */
+export interface MagicLinkEmailContent {
+  subject: string;
+  text: string;
+  html: string;
+}
+
+/** Values supplied to a custom magic-link email renderer. */
+export interface MagicLinkEmailContext {
+  appName: string;
+  verificationUrl: string;
+  ttlMinutes: number;
+}
+
+/** Optional application renderer for the login email. */
+export type RenderMagicLinkEmail = (
+  context: MagicLinkEmailContext,
+) => MagicLinkEmailContent;
 
 /** Result returned after a successful magic-link verification. */
 export interface MagicLinkVerifyResult {
@@ -129,6 +156,16 @@ export interface DenoKvMagicLinkAuthConfig {
   failedAuthRateLimitMaxAttempts?: number;
   failedAuthRateLimitWindowMinutes?: number;
   failedAuthRateLimitBlockMinutes?: number;
+  /** Successful login emails allowed for one address in the send window. Defaults to `10`. */
+  sendRateLimitMaxPerEmail?: number;
+  /** Successful login emails allowed for one IP in the send window. Defaults to `30`. */
+  sendRateLimitMaxPerIp?: number;
+  /** Window used by the successful-send limits. Defaults to `15` minutes. */
+  sendRateLimitWindowMinutes?: number;
+  /** Absolute path joined onto `appBaseUrl`. Defaults to `/api/auth/magic-link/verify`. */
+  magicLinkVerifyPath?: string;
+  /** Replaces the built-in English login email. */
+  renderMagicLinkEmail?: RenderMagicLinkEmail;
   keyPrefix?: string;
   rbac?: MagicLinkRbacConfig;
 }

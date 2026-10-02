@@ -39,6 +39,8 @@ function createAuth(
   const auth = new DenoKvMagicLinkAuth({
     appBaseUrl: APP_BASE_URL,
     authDevExposeMagicLink: true,
+    sendRateLimitMaxPerEmail: 100,
+    sendRateLimitMaxPerIp: 100,
     ...config,
   }, {
     kv,

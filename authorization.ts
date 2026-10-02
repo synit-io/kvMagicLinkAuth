@@ -22,11 +22,9 @@ export function hasRole(session: SessionRecord, role: string): boolean {
   if (!normalizedRole) return false;
 
   const snapshot = getAuthorizationSnapshot(session);
-  if (snapshot) {
-    return normalizeKey(snapshot.role) === normalizedRole;
-  }
-
-  return normalizeKey(session.role) === normalizedRole;
+  const sessionRole = normalizeKey(snapshot?.role ?? session.role);
+  if (!sessionRole) return false;
+  return sessionRole === normalizedRole;
 }
 
 /** Returns whether the session contains the given permission. */

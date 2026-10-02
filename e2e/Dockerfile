@@ -3,7 +3,7 @@ FROM denoland/deno:2.9.7
 WORKDIR /app
 
 COPY deno.json deno.lock ./
-COPY mod.ts service.ts types.ts cookies.ts authorization.ts ./
+COPY mod.ts service.ts types.ts cookies.ts authorization.ts defaults.ts ./
 COPY e2e ./e2e
 
 RUN deno cache e2e/app.ts
