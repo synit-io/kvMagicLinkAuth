@@ -7,16 +7,16 @@ Maintained by [synit.io](https://www.synit.io).
 
 ## Features
 
-- One-time magic-link issuance backed by Deno KV
-- Atomic link consumption to prevent replay races
-- Session persistence in Deno KV
-- Optional email-address and domain allowlist support
-- Failed-login rate limiting per originating IP address
+- One outstanding magic link per user, stored as a hash and consumed atomically
+- Session identifiers stored as hashes, with live user checks on every load
+- Optional email-address and exact-domain allowlist support
+- Failed-attempt and successful-send limits per canonical client IP
 - Initial super-admin propagation into verified users and stored sessions
-- Optional binding checks with cookie secret or IP plus user-agent matching
+- Binding-secret checks when a link was issued with one, otherwise IP plus
+  user-agent
 - Optional RBAC with session-cached role and permission snapshots
 - Pure role and permission helper APIs for request-time checks
-- Cookie helpers for session and verification-bound cookies
+- `__Host-` cookie helpers for session and verification-bound cookies
 - Docker Compose backed E2E coverage with Mailpit and a local auth test app
 - Works well with Fresh, Hono, and custom Deno HTTP services
 
@@ -31,7 +31,7 @@ This package is designed for apps that want:
 
 The package keeps the normal authenticated request path small:
 
-- one session read from KV
+- one session read from KV, plus the application `findUserById` lookup
 - zero extra KV reads for RBAC checks after the session is loaded
 
 ## Install
@@ -82,6 +82,7 @@ bucket. Use the same trusted address resolution for issuance and verification.
 ```ts
 import {
   buildSessionSetCookie,
+  buildVerifyResponseHeaders,
   DenoKvMagicLinkAuth,
   getCookie,
 } from "jsr:@synitio/kv-magic-link-auth";
@@ -135,8 +136,8 @@ export async function handleRequest(
     });
 
     return Response.json({
-      sent: issued.sent,
-      // Debug URLs are useful locally. Do not expose them in production APIs.
+      // Local debug only. Do not return `debugUrl`, `sent`, or `error` from
+      // a production login endpoint.
       debugUrl: issued.debugUrl,
     });
   }
@@ -153,20 +154,19 @@ export async function handleRequest(
       return new Response("invalid or expired link", { status: 401 });
     }
 
-    const headers = new Headers();
-    headers.append(
-      "set-cookie",
-      buildSessionSetCookie(verified.sessionId, {
-        secure: true,
-        sessionCookieName: "__Host-session",
-      }),
-    );
-
-    headers.set(
-      "location",
-      new URL(verified.redirectTo, "https://app.example.local").href,
-    );
-    return new Response(null, { status: 302, headers });
+    return new Response(null, {
+      status: 302,
+      headers: buildVerifyResponseHeaders(
+        new URL(verified.redirectTo, "https://app.example.local").href,
+        [
+          buildSessionSetCookie(verified.sessionId, {
+            secure: true,
+            maxAgeSeconds: auth.sessionCookieMaxAgeSeconds(),
+            sessionCookieName: "__Host-session",
+          }),
+        ],
+      ),
+    });
   }
 
   if (url.pathname === "/me") {
@@ -175,7 +175,8 @@ export async function handleRequest(
       return new Response("not authenticated", { status: 401 });
     }
 
-    // Keep this to one read per request. Reuse the loaded session object below.
+    // Loads the hashed session and rechecks the live user. `findUserById`
+    // must return that account or the session is deleted.
     const session = await auth.getSession(sessionId);
     if (!session) {
       return new Response("session expired", { status: 401 });
@@ -196,12 +197,15 @@ export async function handleRequest(
 
 ### How login works
 
-1. `issueMagicLink()` normalizes the login request, checks allowlists and rate
-   limits, then stores a hashed token record in Deno KV.
-2. `verifyMagicLink()` loads the token record, validates the verification
-   context, atomically marks the token as used, and creates a session.
-3. `getSession()` loads the session and enforces idle and absolute expiry
-   without mutating KV on every request.
+1. `issueMagicLink()` canonicalizes the client IP, checks allowlists and rate
+   limits, then stores one hashed token for that user. A newer link replaces the
+   previous unconsumed link.
+2. `verifyMagicLink()` loads the token, requires the current-user pointer to
+   match, checks the binding secret or the IP plus user-agent, and atomically
+   marks the token as used while creating a session.
+3. `getSession()` loads the hashed session, enforces the fixed idle and absolute
+   deadlines, and calls `findUserById`. A missing, inactive, or changed user
+   deletes the session. The idle deadline does not move on read.
 
 ### Why the session is safe to use for RBAC
 
@@ -226,9 +230,12 @@ session payload.
 
 The package is tuned to avoid unnecessary KV traffic:
 
-- successful login request: one failed-attempt read plus one magic-link write
-- link verification: one link read and one atomic consume-plus-session write
-- authenticated request: one session read
+- successful login request: failed-attempt read, send-budget reservations, and
+  one atomic write of the new link plus the current-user pointer
+- link verification: link and pointer reads, then one atomic consume that also
+  writes the hashed session and its user index
+- authenticated request: one session read, then `findUserById` in application
+  code
 - RBAC helper checks after the session is loaded: zero KV operations
 
 ## Basic Auth Example
@@ -238,15 +245,16 @@ delivery. Return the same `202` response whether an account exists, is blocked,
 or receives mail; keep the internal `sent` result out of public responses. The
 example addresses and mail endpoint are placeholders for your application.
 
-Apply ingress limits per trusted client IP and per recipient before issuing
-links. The package's failed-attempt limiter does not limit successful email
-issuance, so separate delivery quotas are required to prevent mailbox flooding
-and excessive mail or storage costs.
+Successful sends are limited to 10 per email address and 30 per IP in a 15
+minute window. Failed attempts have a separate limiter. Unknown addresses do not
+consume the send budget. Keep any additional edge limits in front of the
+application.
 
 ```ts
 import {
   buildSessionClearCookie,
   buildSessionSetCookie,
+  buildVerifyResponseHeaders,
   DenoKvMagicLinkAuth,
   getCookie,
 } from "jsr:@synitio/kv-magic-link-auth";
@@ -326,20 +334,19 @@ export async function handleRequest(
       return new Response("invalid or expired link", { status: 401 });
     }
 
-    const headers = new Headers();
-    headers.append(
-      "set-cookie",
-      buildSessionSetCookie(verified.sessionId, {
-        secure: true,
-        sessionCookieName: "__Host-session",
-      }),
-    );
-
-    headers.set(
-      "location",
-      new URL(verified.redirectTo, "https://console.example.local").href,
-    );
-    return new Response(null, { status: 302, headers });
+    return new Response(null, {
+      status: 302,
+      headers: buildVerifyResponseHeaders(
+        new URL(verified.redirectTo, "https://console.example.local").href,
+        [
+          buildSessionSetCookie(verified.sessionId, {
+            secure: true,
+            maxAgeSeconds: auth.sessionCookieMaxAgeSeconds(),
+            sessionCookieName: "__Host-session",
+          }),
+        ],
+      ),
+    });
   }
 
   if (url.pathname === "/auth/logout" && request.method === "POST") {
@@ -388,15 +395,17 @@ declare function lookupUserById(id: string): Promise<
 
 ## Advanced Auth Example
 
-This variant adds binding-secret verification. A cookie set on the device that
-requested the link can complete verification even if its IP changes. Matching IP
-and user-agent values remain an alternative; the cookie is not mandatory.
+This variant adds binding-secret verification. A link issued with a binding
+secret can be redeemed only with that secret, including after the client IP
+changes. IP and user-agent matching applies only to links issued without a
+binding secret. The secret must be 16 to 512 characters.
 
 ```ts
 import {
   buildBindingClearCookie,
   buildBindingSetCookie,
   buildSessionSetCookie,
+  buildVerifyResponseHeaders,
   DenoKvMagicLinkAuth,
   getCookie,
 } from "jsr:@synitio/kv-magic-link-auth";
@@ -472,27 +481,23 @@ export async function handleRequest(
       return new Response("invalid or expired link", { status: 401 });
     }
 
-    const headers = new Headers();
-    headers.append(
-      "set-cookie",
-      buildBindingClearCookie({
-        secure: true,
-        bindingCookieName: "__Host-ml-bind",
-      }),
-    );
-    headers.append(
-      "set-cookie",
-      buildSessionSetCookie(verified.sessionId, {
-        secure: true,
-        sessionCookieName: "__Host-session",
-      }),
-    );
-
-    headers.set(
-      "location",
-      new URL(verified.redirectTo, "https://console.example.local").href,
-    );
-    return new Response(null, { status: 302, headers });
+    return new Response(null, {
+      status: 302,
+      headers: buildVerifyResponseHeaders(
+        new URL(verified.redirectTo, "https://console.example.local").href,
+        [
+          buildBindingClearCookie({
+            secure: true,
+            bindingCookieName: "__Host-ml-bind",
+          }),
+          buildSessionSetCookie(verified.sessionId, {
+            secure: true,
+            maxAgeSeconds: auth.sessionCookieMaxAgeSeconds(),
+            sessionCookieName: "__Host-session",
+          }),
+        ],
+      ),
+    });
   }
 
   return new Response("not found", { status: 404 });
@@ -527,6 +532,7 @@ stored in the session as a minimal authorization snapshot.
 ```ts
 import {
   buildSessionSetCookie,
+  buildVerifyResponseHeaders,
   DenoKvMagicLinkAuth,
   getCookie,
   hasPermission,
@@ -598,16 +604,16 @@ export async function handleRequest(
 
     return new Response(null, {
       status: 302,
-      headers: {
-        location: new URL(
-          verified.redirectTo,
-          "https://console.example.local",
-        ).href,
-        "set-cookie": buildSessionSetCookie(verified.sessionId, {
-          secure: true,
-          sessionCookieName: "__Host-session",
-        }),
-      },
+      headers: buildVerifyResponseHeaders(
+        new URL(verified.redirectTo, "https://console.example.local").href,
+        [
+          buildSessionSetCookie(verified.sessionId, {
+            secure: true,
+            maxAgeSeconds: auth.sessionCookieMaxAgeSeconds(),
+            sessionCookieName: "__Host-session",
+          }),
+        ],
+      ),
     });
   }
 
@@ -671,6 +677,7 @@ This example shows:
 ```ts
 import {
   buildSessionSetCookie,
+  buildVerifyResponseHeaders,
   DenoKvMagicLinkAuth,
   getCookie,
   hasPermission,
@@ -731,16 +738,16 @@ export async function handleRequest(
 
     return new Response(null, {
       status: 302,
-      headers: {
-        location: new URL(
-          verified.redirectTo,
-          "https://console.example.local",
-        ).href,
-        "set-cookie": buildSessionSetCookie(verified.sessionId, {
-          secure: true,
-          sessionCookieName: "__Host-session",
-        }),
-      },
+      headers: buildVerifyResponseHeaders(
+        new URL(verified.redirectTo, "https://console.example.local").href,
+        [
+          buildSessionSetCookie(verified.sessionId, {
+            secure: true,
+            maxAgeSeconds: auth.sessionCookieMaxAgeSeconds(),
+            sessionCookieName: "__Host-session",
+          }),
+        ],
+      ),
     });
   }
 
@@ -819,11 +826,17 @@ declare function lookupCurrentUserById(id: string): Promise<
 
 ### `DenoKvMagicLinkAuth`
 
-- `issueMagicLink(input)` issues a one-time login link and stores its hashed
-  verification record in Deno KV
+- `issueMagicLink(input)` issues one login link for the user and stores its
+  hashed verification record in Deno KV. `issued` means a link is stored. `sent`
+  means mail was delivered. `error` is for the application only.
 - `verifyMagicLink(input)` validates and consumes a link, then creates a session
-- `getSession(sessionId)` returns a valid session record or `null`
-- `revokeSession(sessionId)` deletes a session from Deno KV
+- `getSession(sessionId)` returns a current session or `null`. It calls
+  `findUserById` and deletes the session when that user can no longer sign in.
+- `revokeSession(sessionId)` deletes one hashed session
+- `revokeUserSessions(userId)` deletes every session issued for that user
+- `sessionCookieMaxAgeSeconds()` returns the cookie lifetime shared with the
+  session record
+- `magicLinkVerifyPath` is the verify pathname joined onto `appBaseUrl`
 
 ### RBAC helpers
 
@@ -838,14 +851,23 @@ These helpers are pure. They do not read from KV.
 ### Config highlights
 
 - `allowedEmailPatterns` accepts exact addresses such as `"admin@example.com"`
-  and domain wildcards such as `"*@example.com"`
+  and domain patterns such as `"*@example.com"`. A domain pattern matches that
+  domain only.
 - `initialSuperAdminEmail` marks the matching authenticated user as
-  `isSuperAdmin`
+  `isSuperAdmin` when the user record does not set the flag itself
 - `failedAuthRateLimitMaxAttempts`, `failedAuthRateLimitWindowMinutes`, and
-  `failedAuthRateLimitBlockMinutes` throttle repeated failed login requests from
-  the same IP address
+  `failedAuthRateLimitBlockMinutes` throttle repeated failed login and
+  verification requests from the same canonical IP address
+- `sendRateLimitMaxPerEmail`, `sendRateLimitMaxPerIp`, and
+  `sendRateLimitWindowMinutes` limit successful login mail
+- `magicLinkVerifyPath` sets the verify path joined onto `appBaseUrl`
+- `renderMagicLinkEmail` replaces the English login message. The rendered text
+  or HTML must contain the verification URL.
+- `appBaseUrl` is an `http` or `https` origin plus an optional path.
+  Credentials, query strings, and hashes are rejected.
 - `rbac` enables optional role-to-permission mapping and session-cached
-  authorization snapshots
+  authorization snapshots. Duplicate role names are rejected. A user with no
+  role is not assigned `viewer` unless `defaultRole` says so.
 
 ### Cookie helpers
 
@@ -853,59 +875,85 @@ These helpers are pure. They do not read from KV.
 - `buildSessionClearCookie`
 - `buildBindingSetCookie`
 - `buildBindingClearCookie`
+- `buildVerifyResponseHeaders`
 - `getCookie`
+
+Cookie names default to `__Host-session` and `__Host-ml-bind`. Both require
+`Secure`, and `__Host-` cookies use `Path=/`. On local HTTP, choose names
+without a `__Host-` or `__Secure-` prefix and set `secure: false`. Pass
+`maxAgeSeconds: auth.sessionCookieMaxAgeSeconds()` so the cookie ends with the
+session. The default lifetime is 7 days. `getCookie` returns `null` when the
+same name appears twice. `buildVerifyResponseHeaders` sets `Location`,
+`Referrer-Policy: no-referrer`, `Cache-Control: no-store`, and the session
+cookie. The login token stays in the verification query string; the referrer
+policy keeps that URL out of the next request.
 
 ## Security Notes
 
-- Email requests can be restricted to explicit addresses or whole domains
-- Repeated failed login requests from the same IP are temporarily blocked
+- Email requests can be restricted to explicit addresses or one exact domain
+- Repeated failed login and verification requests from the same canonical IP are
+  temporarily blocked
 - Redirect targets are constrained to the configured application origin
 - Verification links include only a one-time token in query params and never
   include an email address
-- Link verification requires either a matching binding secret or a matching IP
-  plus user-agent pair
-- Used and expired links are rejected; verification rechecks the current email
-  allowlist and the user's email and `authVersion` from issuance
+- A link issued with a binding secret requires that secret. IP plus user-agent
+  matching is used only when no binding secret was issued.
+- Used, expired, and superseded links are rejected. Verification rechecks the
+  current email allowlist and the user's email and `authVersion` from issuance.
 - Session and binding cookies are `HttpOnly`, `Secure`, and `SameSite=Lax` by
   default, allowing top-level navigation from an email link
-- `requestIp` must come from transport metadata or an explicitly trusted proxy,
-  not an unchecked forwarding header
+- `requestIp` is required. Pass a canonical address from transport metadata or
+  an explicitly trusted proxy, never an unchecked forwarding header.
+- `getSession()` keeps a session only while `findUserById` returns the same
+  active user, email, `authVersion`, and super-admin flag. With RBAC enabled,
+  `permissionsVersion` must match too.
 - RBAC permission data is stored as a minimal session snapshot, not as a policy
   source of truth
+- Login responses that callers can see should carry a generic acceptance. Keep
+  `sent`, `debugUrl`, and `error` in server logs.
 
-### Upgrading existing integrations
+### Upgrading to 0.4.0
 
-New magic links are bound to the user's email and `authVersion` at issuance.
-Links issued before this change lack that version snapshot and are rejected; ask
-users to request a fresh link after deploying the upgrade. Increment
-`authVersion` when changing credentials or revoking outstanding links. Existing
-sessions still require the application's version check shown in the Advanced
-RBAC Example.
+Sessions and magic links written by 0.3.0 stop working. Session keys are now
+hashes of the cookie value, and a magic link without the current-user pointer is
+rejected. Ask users to request a new link after deploying.
 
-Cookie helpers now default to `SameSite=Lax` so browsers can send the binding
-cookie when following a top-level email link. `__Host-` cookies use `Path=/` and
-require `Secure`. Keep state-changing routes protected with POST plus origin or
-CSRF validation; SameSite alone is not a complete CSRF defense. Clear any legacy
-`ml_bind` cookie at `Path=/api/auth/magic-link/verify` when switching a deployed
-binding cookie to `Path=/`.
+Cookie helpers default to `__Host-session` and `__Host-ml-bind`, with a 7 day
+`Max-Age`. HTTP development cannot use those names: set a name without the
+prefix and pass `secure: false`. Clear any legacy `ml_bind` cookie at
+`Path=/api/auth/magic-link/verify` when a deployed binding cookie moves to
+`Path=/`.
 
-Set `sameSite: "Strict"` explicitly on cookie helpers only when your login flow
-provides an intermediate page that completes verification through a subsequent
-same-site request. Use the same cookie configuration when setting and clearing
-cookies.
+`appBaseUrl` can no longer contain credentials, a query string, or a hash.
+`requestIp` must be present and is canonicalized before it is used as a key or a
+binding value. A binding secret shorter than 16 characters is rejected at
+issuance. The built-in login mail is English unless `renderMagicLinkEmail` is
+set. `getSession()` now calls `findUserById` on every load.
 
-Update verification handlers to `/api/auth/magic-link/verify`, and return a
-response containing both `Location` and `Set-Cookie`. The examples above show
-this response and the trusted transport context required for IP checks.
+Keep state-changing routes protected with POST plus origin or CSRF validation.
+`SameSite=Lax` lets an emailed link carry the binding cookie, and it is not a
+complete CSRF defense. Set `sameSite: "Strict"` only when verification finishes
+on a later same-site request. Use the same cookie configuration when setting and
+clearing cookies.
+
+Return the verification response from `buildVerifyResponseHeaders` so the
+browser receives `Location`, `Set-Cookie`, and `Referrer-Policy: no-referrer`
+together. Increment `authVersion` when credentials change, and
+`permissionsVersion` when role permissions change. `revokeUserSessions(userId)`
+clears every session for one user.
 
 ## Low-KV Deployment Guidance
 
 - Load the session once per request and pass the loaded object through your
-  handlers
-- Use RBAC helpers on the loaded session object instead of reloading state
+  handlers. That load is one KV read plus `findUserById`.
+- Use RBAC helpers on the loaded session object instead of reading policy from
+  KV
 - Keep role-to-permission mapping in application config, not in KV
-- Use version invalidation for auth changes instead of rewriting every session
-- If you later add sliding sessions, throttle any write-back behavior heavily
+- Bump `authVersion` or `permissionsVersion` when authorization changes.
+  `getSession()` drops sessions that no longer match, and `revokeUserSessions()`
+  can delete them immediately.
+- Idle and absolute deadlines are fixed at issuance. The effective lifetime is
+  the earlier of the two.
 
 ## Development
 

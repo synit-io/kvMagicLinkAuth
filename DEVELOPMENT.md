@@ -25,11 +25,11 @@ deno task test:docs
 containerized Deno test app, executes the E2E suite against the running stack,
 and removes the containers afterward.
 
-`deno task check` runs formatting, lint, unit/security/cookie tests, and
-extracted README example tests. The example tests typecheck all five
-authentication and authorization examples and execute their login handlers with
-isolated KV and mail fixtures. They require permission to launch `deno`
-subprocesses.
+`deno task check` runs formatting, lint, unit, security, cookie, and hardening
+tests, then the extracted README example tests. The example tests typecheck all
+five authentication and authorization examples and execute their login handlers
+with isolated in-memory KV and mail fixtures. They require permission to launch
+`deno` subprocesses and to create temporary files.
 
 `deno task test:browser` runs Chromium against an isolated local HTTP fixture.
 It checks browser cookie acceptance, cross-site email navigation, binding on a
@@ -45,8 +45,10 @@ browser and E2E tests while retaining Deno 2.7.11 for unit and documentation
 compatibility checks.
 
 The browser task uses full Deno permissions for Playwright's Linux `/proc`
-checks and browser subprocess management. Unit and documentation tasks retain
-their narrower permissions.
+checks and browser subprocess management. Unit tests need `--unstable-kv` only.
+Documentation tests add read, write, and permission to launch `deno`.
+`nodemailer` and `playwright` are imported by the E2E app and browser test, not
+by the published package.
 
 E2E HTTP ports are bound to `127.0.0.1`; SMTP stays inside the Compose network.
 The E2E app uses the socket peer address rather than forwarding headers, and its
@@ -62,21 +64,22 @@ The repository includes four automation files under `.github`:
   `main` (including merges), and on manual dispatch. The E2E checkout path
   includes spaces and Unicode to exercise filesystem URL conversion.
 - `.github/workflows/deno-deps-update.yml` runs every Monday at 05:00 UTC and
-  opens a PR with `deno outdated --update --latest` changes only after the
-  `deno task check` gate passes.
+  opens a PR with `deno outdated --update --latest` changes only after
+  `deno task check`, `deno task e2e`, and `deno task test:browser` pass. The job
+  timeout is 40 minutes.
 - `.github/workflows/cleanup-deno-dependency-branches.yml` runs when a
-  `chore/deno-dependencies*` pull request is merged into `main` and deletes
-  orphaned dependency-update branches that are no longer used by open PRs.
+  `chore/deno-dependencies*` pull request is merged into `main`. It deletes that
+  pull request's head branch when no open pull request still uses it.
 - `.github/dependabot.yml` keeps GitHub Actions and Docker dependencies updated.
   Dependabot does not currently provide a dedicated Deno/JSR ecosystem updater,
   so Deno dependency updates are handled by the scheduled workflow above.
 
-## Why tests need file permissions
+## Why documentation tests need file permissions
 
-The original unit suite opens an isolated local Deno KV database file per test;
-the additional security tests use in-memory KV. Documentation tests create and
-remove temporary TypeScript fixtures. That is why `--unstable-kv`,
-`--allow-read`, and `--allow-write` are required for `deno test`.
+Unit, security, cookie, and hardening tests open `Deno.openKv(":memory:")`, so
+`deno task test` does not grant filesystem permissions. Documentation tests
+write the README examples to a temporary directory and run them with `deno`.
+That task needs `--allow-read`, `--allow-write`, and `--allow-run=deno`.
 
 ## Release checklist
 
@@ -92,6 +95,8 @@ remove temporary TypeScript fixtures. That is why `--unstable-kv`,
 
 - Keep the public API small and explicit.
 - Prefer readable control flow over clever abstractions.
-- Treat redirect handling, token validation, and cookie serialization as
-  security-sensitive areas.
+- Treat redirect handling, token validation, IP canonicalization, binding
+  checks, and cookie serialization as security-sensitive areas.
+- `getSession()` must keep calling `findUserById`. A session lookup that trusts
+  only the KV record is stale.
 - Keep package docs current with the published API surface.
