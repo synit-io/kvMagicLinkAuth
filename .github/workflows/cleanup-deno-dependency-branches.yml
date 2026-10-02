@@ -39,12 +39,7 @@ jobs:
 
             const owner = context.repo.owner;
             const repo = context.repo.repo;
-
-            const matchingRefs = await github.rest.git.listMatchingRefs({
-              owner,
-              repo,
-              ref: `heads/${prefix}`,
-            });
+            const branch = pr.head.ref;
 
             const openPulls = await github.paginate(github.rest.pulls.list, {
               owner,
@@ -52,30 +47,19 @@ jobs:
               state: 'open',
               per_page: 100,
             });
-            const protectedHeads = new Set(openPulls.map((openPr) => openPr.head.ref));
-
-            let deleted = 0;
-
-            for (const ref of matchingRefs.data) {
-              const branch = ref.ref.replace('refs/heads/', '');
-
-              if (branch === 'main') continue;
-              if (protectedHeads.has(branch)) {
-                core.info(`Keeping ${branch}: branch is used by an open pull request.`);
-                continue;
-              }
-
-              try {
-                await github.rest.git.deleteRef({
-                  owner,
-                  repo,
-                  ref: `heads/${branch}`,
-                });
-                core.info(`Deleted ${branch}`);
-                deleted += 1;
-              } catch (error) {
-                core.warning(`Could not delete ${branch}: ${error.message}`);
-              }
+            if (openPulls.some((openPr) => openPr.head.ref === branch)) {
+              core.info(`Keeping ${branch}: branch is used by an open pull request.`);
+              return;
             }
 
-            core.info(`Cleanup complete. Deleted ${deleted} branch(es).`);
+            try {
+              await github.rest.git.deleteRef({
+                owner,
+                repo,
+                ref: `heads/${branch}`,
+              });
+              core.info(`Deleted ${branch}`);
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              core.warning(`Could not delete ${branch}: ${message}`);
+            }
