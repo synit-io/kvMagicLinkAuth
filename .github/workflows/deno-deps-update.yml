@@ -17,7 +17,7 @@ jobs:
   update:
     name: Update dependencies and open PR
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
 
     steps:
       - name: Checkout
@@ -34,6 +34,20 @@ jobs:
       - name: Validate updated dependencies
         run: deno task check
 
+      - name: Setup Deno for browser and E2E
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.9.6
+
+      - name: Run e2e suite
+        run: deno task e2e
+
+      - name: Install Chromium
+        run: deno task browser:install --with-deps
+
+      - name: Run browser login tests
+        run: deno task test:browser
+
       - name: Create pull request
         uses: peter-evans/create-pull-request@v8
         with:
@@ -45,7 +59,7 @@ jobs:
             What this PR does:
             - runs `deno outdated --update --latest`
             - updates `deno.lock` when needed
-            - runs `deno task check` before opening the PR
+            - runs `deno task check`, `deno task e2e`, and `deno task test:browser` before opening the PR
           branch: chore/deno-dependencies
           delete-branch: true
           labels: dependencies

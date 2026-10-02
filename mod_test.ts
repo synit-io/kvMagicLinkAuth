@@ -45,13 +45,11 @@ function createNow(start = "2026-03-20T10:00:00.000Z") {
 }
 
 async function withTestKv(fn: (kv: Deno.Kv) => Promise<void>) {
-  const path = await Deno.makeTempFile({ suffix: ".sqlite3" });
-  const kv = await Deno.openKv(path);
+  const kv = await Deno.openKv(":memory:");
   try {
     await fn(kv);
   } finally {
     kv.close();
-    await Deno.remove(path);
   }
 }
 
@@ -104,7 +102,7 @@ Deno.test("issueMagicLink normalizes email and exposes debug URL in debug mode",
       redirectTo: "/dashboard",
       requestIp: " 127.0.0.1 ",
       userAgent: " Firefox ",
-      bindingSecret: " cookie-secret ",
+      bindingSecret: "  binding-secret-value ",
     });
 
     assertEquals(result.sent, false);
@@ -117,7 +115,7 @@ Deno.test("issueMagicLink normalizes email and exposes debug URL in debug mode",
       token,
       requestIp: "127.0.0.1",
       userAgent: "firefox",
-      bindingSecret: "cookie-secret",
+      bindingSecret: "binding-secret-value",
     });
 
     assert(verified);
@@ -160,6 +158,7 @@ Deno.test("issueMagicLink only allows configured email addresses and domains", a
     const allowedByDomain = await auth.issueMagicLink({
       email: DEFAULT_USER.email,
       requestIp: "10.0.0.5",
+      userAgent: "Browser",
     });
     const blocked = await auth.issueMagicLink({
       email: "blocked@outside.example",
@@ -168,6 +167,7 @@ Deno.test("issueMagicLink only allows configured email addresses and domains", a
     const allowedByExactAddress = await auth.issueMagicLink({
       email: "allowed@other.example",
       requestIp: "10.0.0.6",
+      userAgent: "Browser",
     });
 
     assert(allowedByDomain.debugUrl);
@@ -342,7 +342,7 @@ Deno.test("sendMail is used when enabled and issueMagicLink reports sent=true", 
     assert(result.debugUrl);
     const payload = sentPayloads[0];
     assert(payload);
-    assertEquals(payload.to, DEFAULT_USER.email);
+    assertEquals(payload.to, "admin@example.com");
     assertMatch(payload.subject, /Synit Auth/);
   });
 });
@@ -488,10 +488,8 @@ Deno.test("authorization helpers fail closed for legacy sessions without an RBAC
     isSuperAdmin: false,
     authVersion: 1,
     createdAt: "2026-03-20T10:00:00.000Z",
-    lastSeenAt: "2026-03-20T10:00:00.000Z",
     idleExpiresAt: "2026-03-21T10:00:00.000Z",
     absoluteExpiresAt: "2026-03-22T10:00:00.000Z",
-    revokedAt: null,
   };
 
   assertEquals(hasRole(session, "admin"), true);
@@ -516,10 +514,8 @@ Deno.test("super admins bypass RBAC permission checks", () => {
       permissionsVersion: 1,
     },
     createdAt: "2026-03-20T10:00:00.000Z",
-    lastSeenAt: "2026-03-20T10:00:00.000Z",
     idleExpiresAt: "2026-03-21T10:00:00.000Z",
     absoluteExpiresAt: "2026-03-22T10:00:00.000Z",
-    revokedAt: null,
   };
 
   assertEquals(hasRole(session, "admin"), true);

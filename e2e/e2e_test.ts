@@ -90,7 +90,7 @@ Deno.test("e2e request and verify flow delivers mail through SMTP and marks supe
   );
 
   assertEquals(requestResponse.status, 200);
-  assertEquals(await requestResponse.json(), { sent: true });
+  assertEquals(await requestResponse.json(), { issued: true, sent: true });
 
   const message = await findLatestMessage("admin@example.com");
   const verificationUrl = extractVerificationUrl(message);
@@ -133,7 +133,7 @@ Deno.test("e2e allowlist and failed-attempt throttling are enforced", async () =
     }),
   });
   assertEquals(allowed.status, 200);
-  assertEquals(await allowed.json(), { sent: true });
+  assertEquals(await allowed.json(), { issued: true, sent: true });
 
   const message = await findLatestMessage("special@outside.example");
   assertMatch(message.Text ?? "", /token=/);

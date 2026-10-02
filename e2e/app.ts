@@ -1,4 +1,5 @@
-import nodemailer from "nodemailer";
+// deno-lint-ignore no-import-prefix
+import nodemailer from "npm:nodemailer@^10.0.10";
 
 import { DenoKvMagicLinkAuth } from "../mod.ts";
 import type { MagicLinkAuthUser } from "../types.ts";
@@ -123,7 +124,10 @@ Deno.serve({ port: PORT }, async (request, info) => {
       redirectTo: body?.redirectTo,
       ...requestContext(request, info),
     });
-    return json(issued, { status: issued.sent ? 200 : 401 });
+    return json(
+      { issued: issued.issued, sent: issued.sent },
+      { status: issued.sent ? 200 : 401 },
+    );
   }
 
   if (

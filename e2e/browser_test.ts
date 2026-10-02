@@ -1,5 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
-import { chromium } from "playwright";
+// deno-lint-ignore no-import-prefix
+import { chromium } from "npm:playwright@^1.63.0";
 
 import {
   buildBindingClearCookie,

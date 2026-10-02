@@ -1,6 +1,6 @@
 {
   "name": "@synitio/kv-magic-link-auth",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Deno KV backed magic-link authentication for server-side Deno apps.",
   "license": "MIT",
   "exports": {
@@ -8,7 +8,7 @@
   },
   "tasks": {
     "check": "deno fmt --check && deno lint && deno task test && deno task test:docs",
-    "test": "deno test --unstable-kv --allow-read --allow-write mod_test.ts security_test.ts cookies_test.ts",
+    "test": "deno test --unstable-kv mod_test.ts security_test.ts cookies_test.ts hardening_test.ts",
     "test:docs": "deno test --unstable-kv --allow-read --allow-write --allow-run=deno readme_test.ts",
     "e2e": "deno run --allow-run=docker,deno --allow-net=127.0.0.1 e2e/run.ts",
     "browser:install": "deno run -A playwright install --only-shell chromium",
@@ -16,7 +16,7 @@
   },
   "imports": {
     "@std/assert": "jsr:@std/assert@^1.0.19",
-    "nodemailer": "npm:nodemailer@^10.0.12",
+    "nodemailer": "npm:nodemailer@^10.0.13",
     "playwright": "npm:playwright@^1.63.0"
   },
   "fmt": {
@@ -31,6 +31,7 @@
       "mod_test.ts",
       "security_test.ts",
       "cookies_test.ts",
+      "hardening_test.ts",
       "readme_test.ts"
     ]
   }

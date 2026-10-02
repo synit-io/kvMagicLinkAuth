@@ -2,6 +2,40 @@
 
 All notable changes to this package are documented in this file.
 
+## 0.4.0 - 2026-10-02
+
+- Revalidated every session against `findUserById`. A session ends when the user
+  is missing, inactive, or no longer matches the stored email, `authVersion`, or
+  super-admin flag. With RBAC enabled, `permissionsVersion` must match too.
+  Added `revokeUserSessions(userId)`.
+- Stored session ids as SHA-256 hashes. The cookie still carries the raw id.
+- Kept one outstanding magic link per user and required its current-user pointer
+  during verification. Links written before this version cannot be consumed.
+- Required the binding secret whenever a link stored one. IP and user-agent
+  matching remains the path for links issued without a binding secret.
+- Canonicalized `requestIp` before rate-limit keys and IP binding, and rejected
+  missing or invalid addresses. Added a separate verifier-failure limiter.
+- Tightened email checks and made `*@domain` match that domain only. Mail is
+  sent to the normalized address that passed the allowlist.
+- Added successful-send quotas of 10 per email and 30 per IP each 15 minutes.
+  Unknown users do not consume that budget. KV retries stop after 8 attempts.
+- Replaced the 30 day cookie default with the 7 day session lifetime. Default
+  cookie names are `__Host-session` and `__Host-ml-bind`.
+- Added `buildVerifyResponseHeaders`, `magicLinkVerifyPath`,
+  `renderMagicLinkEmail`, and `sessionCookieMaxAgeSeconds()`. The built-in login
+  email is English.
+- Rejected `appBaseUrl` values that contain credentials, a query, or a hash. An
+  unknown RBAC role no longer throws, and a missing role is no longer stored as
+  `viewer`.
+- Stopped publishing `nodemailer` and `playwright` on the package import map.
+  Unit tests use in-memory KV. Dependency-update cleanup deletes only the merged
+  branch, and that workflow also runs the E2E and browser suites.
+
+Upgrade: existing sessions and magic links stop working, so users need a new
+link. HTTP development must set non-prefix cookie names and `secure: false`.
+`findUserById` must return the live user or `getSession()` ends the session.
+Idle expiry is a fixed deadline measured from issuance.
+
 ## 0.3.0 - 2026-09-10
 
 - Bound newly issued magic links to the user's email and credential version.
