@@ -3,8 +3,9 @@
   "specifiers": {
     "jsr:@std/assert@^1.0.19": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.12",
-    "npm:nodemailer@^10.0.15": "10.0.15",
-    "npm:playwright@^1.63.0": "1.63.0"
+    "npm:nodemailer@^10.1.0": "10.1.0",
+    "npm:playwright@^1.63.0": "1.64.0",
+    "npm:playwright@^1.64.0": "1.64.0"
   },
   "jsr": {
     "@std/assert@1.0.19": {
@@ -18,15 +19,15 @@
     }
   },
   "npm": {
-    "nodemailer@10.0.15": {
-      "integrity": "sha512-EUqp5PhtcsYXs9Fq/lS7s/8zlTrnBqmzZWzFFROrNikMiz+om/YRKMwqN907t+0A1KKyT8jd39CBUbFZmaZmcA=="
+    "nodemailer@10.1.0": {
+      "integrity": "sha512-fXW8AulB25aOTuwfRYV6lqHyfz2VM4rr4SGXH03mE7x5znEUpzL5mu6anARUpZN7744Ziwkmr4AxSLPJsBQspg=="
     },
-    "playwright-core@1.63.0": {
-      "integrity": "sha512-rYCsBF/M5HjUch52bbtVONEFjv6Xu8sm8h72dNlR5bzIE1fvC/bxgspzkjSfU+MweEMmPM8KJebG6nnyxo5mCg==",
+    "playwright-core@1.64.0": {
+      "integrity": "sha512-T9r+MZkTECl2+oUcZ26YgZzTrYidTsIhYYkJix+6iDOymOb1FB2RLLSOxRGnZGv5DStt+aduIVbt+E8WygXYpg==",
       "bin": true
     },
-    "playwright@1.63.0": {
-      "integrity": "sha512-+7ziBLidS4NaNCdt57SUDT+wYmmd5fmiQejUic/kb+YsYSCPyOOE9sebzMjNmQrsnNpDJqd4WHvV/8lfKfUDUg==",
+    "playwright@1.64.0": {
+      "integrity": "sha512-kVzTnYFYEyQ9RGzBjNCd2+yEqWmVbxl3AHPynv3qQ6JTjv4a+kwRcnqQwIpuP3NnrnIrE/Q6wWAIAvMfIE2/Yg==",
       "dependencies": [
         "playwright-core"
       ],
@@ -36,8 +37,8 @@
   "workspace": {
     "dependencies": [
       "jsr:@std/assert@^1.0.19",
-      "npm:nodemailer@^10.0.15",
-      "npm:playwright@^1.63.0"
+      "npm:nodemailer@^10.1.0",
+      "npm:playwright@^1.64.0"
     ]
   }
 }

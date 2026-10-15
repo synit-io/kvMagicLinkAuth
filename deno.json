@@ -16,8 +16,8 @@
   },
   "imports": {
     "@std/assert": "jsr:@std/assert@^1.0.19",
-    "nodemailer": "npm:nodemailer@^10.0.15",
-    "playwright": "npm:playwright@^1.63.0"
+    "nodemailer": "npm:nodemailer@^10.1.0",
+    "playwright": "npm:playwright@^1.64.0"
   },
   "fmt": {
     "semiColons": true,
