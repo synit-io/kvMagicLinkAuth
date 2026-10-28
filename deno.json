@@ -16,7 +16,7 @@
   },
   "imports": {
     "@std/assert": "jsr:@std/assert@^1.0.19",
-    "nodemailer": "npm:nodemailer@^10.1.7",
+    "nodemailer": "npm:nodemailer@^10.2.1",
     "playwright": "npm:playwright@^1.64.1"
   },
   "fmt": {
