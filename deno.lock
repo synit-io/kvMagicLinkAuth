@@ -3,7 +3,7 @@
   "specifiers": {
     "jsr:@std/assert@^1.0.19": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.12",
-    "npm:nodemailer@^10.6.0": "10.6.0",
+    "npm:nodemailer@^10.6.1": "10.6.1",
     "npm:playwright@^1.63.0": "1.65.1",
     "npm:playwright@^1.65.1": "1.65.1"
   },
@@ -19,8 +19,8 @@
     }
   },
   "npm": {
-    "nodemailer@10.6.0": {
-      "integrity": "sha512-jWanL7D9GD3jvUDYKmoC5rWTiG8MnBgnN2yV68bgMKip1zUJhiSTyz7Eg+18y8sk5OvdVDzws5nZK5arSI4f5Q=="
+    "nodemailer@10.6.1": {
+      "integrity": "sha512-d7kfFfS/tR4Aca+SBvRaQ+MXKNv7d2JiRe5TxaRcFT/kYMh4GGPnW9aKksTIEvyEbA7d/7HYWE4YPDEHxzJj/g=="
     },
     "playwright-core@1.65.1": {
       "integrity": "sha512-hqPpz7blSMPxWVdoeE1yiBSzXsKiVOd2k+kjCvmUywD2GPO2Dd9HfcWnq9NN0GHbNZDFgZ9JfBFr+X5/BLo0qw==",
@@ -37,7 +37,7 @@
   "workspace": {
     "dependencies": [
       "jsr:@std/assert@^1.0.19",
-      "npm:nodemailer@^10.6.0",
+      "npm:nodemailer@^10.6.1",
       "npm:playwright@^1.65.1"
     ]
   }
